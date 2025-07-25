@@ -24,7 +24,7 @@ Desirable:
 - Allow users to report outdated map info or submit requests to update building data.
 
 
-Optional:
+Optional :
 - Include augmented reality (AR) view for navigation using the phone’s camera.
 - Add a “Find My Classmate” feature using location sharing within user-selected privacy limits.
 - Add gamification elements like digital badges for exploring different parts of campus.
