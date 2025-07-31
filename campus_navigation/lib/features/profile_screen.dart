@@ -32,19 +32,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
       title: Text(title, style: const TextStyle(fontWeight: FontWeight.w500)),
       value: value,
       onChanged: onChanged,
-      secondary: Icon(icon),
-      activeColor: Colors.deepPurple,
+      secondary: Icon(icon, color: Theme.of(context).colorScheme.primary),
+      activeColor: Theme.of(context).colorScheme.primary,
     );
   }
 
   Widget _buildTile(String title, IconData icon, VoidCallback onTap) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.deepPurple.shade50,
+        color: Theme.of(context).colorScheme.surfaceVariant,
         borderRadius: BorderRadius.circular(12),
       ),
       child: ListTile(
-        leading: Icon(icon, color: Colors.deepPurple),
+        leading: Icon(icon, color: Theme.of(context).colorScheme.primary),
         title: Text(title),
         trailing: const Icon(Icons.arrow_forward_ios, size: 16),
         onTap: onTap,
@@ -58,10 +58,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final email = user?.email ?? 'xyz@student.le.ac.uk';
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         titleSpacing: 0,
-        backgroundColor: Colors.white,
+        backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
         elevation: 0,
         automaticallyImplyLeading: false,
         title: Image.asset(
@@ -81,40 +81,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(displayName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-              const CircleAvatar(
+              Text(
+                displayName,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              CircleAvatar(
                 radius: 30,
-                backgroundColor: Colors.deepPurple,
-                child: Icon(Icons.person, size: 32, color: Colors.white),
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                child: const Icon(Icons.person, size: 32, color: Colors.white),
               )
             ],
           ),
-          Text(email, style: const TextStyle(color: Colors.grey)),
+          Text(email, style: Theme.of(context).textTheme.bodySmall),
           const Divider(height: 32),
 
           Container(
             padding: const EdgeInsets.symmetric(vertical: 16),
             decoration: BoxDecoration(
-              color: Colors.deepPurple.shade50,
+              color: Theme.of(context).colorScheme.surfaceVariant,
               borderRadius: BorderRadius.circular(16),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: const [
+              children: [
                 Column(
                   children: [
-                    Icon(Icons.navigation, color: Colors.deepPurple),
-                    SizedBox(height: 4),
-                    Text("18", style: TextStyle(fontWeight: FontWeight.bold)),
-                    Text("Trips Completed", style: TextStyle(fontSize: 12)),
+                    Icon(Icons.navigation, color: Theme.of(context).colorScheme.primary),
+                    const SizedBox(height: 4),
+                    const Text("18", style: TextStyle(fontWeight: FontWeight.bold)),
+                    const Text("Trips Completed", style: TextStyle(fontSize: 12)),
                   ],
                 ),
                 Column(
                   children: [
-                    Icon(Icons.directions_walk, color: Colors.deepPurple),
-                    SizedBox(height: 4),
-                    Text("10 km", style: TextStyle(fontWeight: FontWeight.bold)),
-                    Text("Distance Travelled", style: TextStyle(fontSize: 12)),
+                    Icon(Icons.directions_walk, color: Theme.of(context).colorScheme.primary),
+                    const SizedBox(height: 4),
+                    const Text("10 km", style: TextStyle(fontWeight: FontWeight.bold)),
+                    const Text("Distance Travelled", style: TextStyle(fontSize: 12)),
                   ],
                 )
               ],
@@ -141,16 +144,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const Text("App Settings", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           const SizedBox(height: 12),
 
-          _buildTile("Saved Routes", Icons.location_on, () {
-          }),
-
+          _buildTile("Saved Routes", Icons.location_on, () {}),
           const SizedBox(height: 12),
-          _buildTile("Units and Measurements", Icons.tune, () {
-          }),
-
+          _buildTile("Units and Measurements", Icons.tune, () {}),
           const SizedBox(height: 12),
-          _buildTile("Help and Feedback", Icons.help_outline, () {
-          }),
+          _buildTile("Help and Feedback", Icons.help_outline, () {}),
 
           const SizedBox(height: 32),
           Center(

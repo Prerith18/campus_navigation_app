@@ -13,7 +13,10 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
+
   String _searchQuery = '';
+  double? _searchLat;
+  double? _searchLng;
 
   void _onTabTapped(int index) {
     setState(() {
@@ -21,9 +24,11 @@ class _MainScreenState extends State<MainScreen> {
     });
   }
 
-  void _handleSearch(String query) {
+  void _handleSearch(String query, double? lat, double? lng) {
     setState(() {
       _searchQuery = query;
+      _searchLat = lat;
+      _searchLng = lng;
       _selectedIndex = 1;
     });
   }
@@ -37,8 +42,10 @@ class _MainScreenState extends State<MainScreen> {
         onSearch: _handleSearch,
       ),
       MapScreen(
-        key: ValueKey(_searchQuery),
+        key: ValueKey("$_searchQuery-$_searchLat-$_searchLng"),
         searchQuery: _searchQuery,
+        searchLat: _searchLat,
+        searchLng: _searchLng,
       ),
       const ProfileScreen(),
     ];
