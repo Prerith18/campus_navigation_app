@@ -23,7 +23,7 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> {
   final Completer<GoogleMapController> _controller = Completer();
-  static const String apiKey = "YOUR_API_KEY";
+  static const String apiKey = "2e3c375c5d6363104850fcf69456e5e0";
   static const LatLng campusCenter = LatLng(52.6219, -1.1244);
 
   LatLng? _selectedLocation;
@@ -43,7 +43,7 @@ class _MapScreenState extends State<MapScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _controller.future.then((controller) {
-      _applyMapStyle(controller); 
+      _applyMapStyle(controller);
     });
   }
 

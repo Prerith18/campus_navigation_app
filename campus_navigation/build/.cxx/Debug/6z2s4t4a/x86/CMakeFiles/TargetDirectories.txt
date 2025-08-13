@@ -1,2 +1,0 @@
-C:/dissertation/campus_navigation/build/.cxx/Debug/6z2s4t4a/x86/CMakeFiles/edit_cache.dir
-C:/dissertation/campus_navigation/build/.cxx/Debug/6z2s4t4a/x86/CMakeFiles/rebuild_cache.dir

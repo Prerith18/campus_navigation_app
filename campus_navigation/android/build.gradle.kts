@@ -1,14 +1,11 @@
-buildscript {
-    dependencies {
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.23")
-        classpath("com.google.gms:google-services:4.3.15") // or latest if needed
-    }
-
-    repositories {
-        google()
-        mavenCentral()
-    }
+plugins {
+    id("com.android.application") apply false
+    id("com.android.library") apply false
+    id("org.jetbrains.kotlin.android") apply false
+    id("com.google.gms.google-services") apply false
 }
+
+
 
 allprojects {
     repositories {
@@ -17,16 +14,14 @@ allprojects {
     }
 }
 
-val newBuildDir: Directory = rootProject.layout.buildDirectory.dir("../../build").get()
-rootProject.layout.buildDirectory.value(newBuildDir)
+
+val newBuildDir = rootProject.layout.buildDirectory.dir("../../build").get()
+rootProject.layout.buildDirectory.set(newBuildDir)
 
 subprojects {
-    val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
-    project.layout.buildDirectory.value(newSubprojectBuildDir)
-}
-
-subprojects {
-    project.evaluationDependsOn(":app")
+    val newSubprojectBuildDir = newBuildDir.dir(project.name)
+    layout.buildDirectory.set(newSubprojectBuildDir)
+    evaluationDependsOn(":app")
 }
 
 tasks.register<Delete>("clean") {

@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:campus_navigation/services/weather_service.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt; // NEW
 import 'notification_screen.dart';
 import 'timetable_screen.dart';
 
@@ -31,10 +32,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final String apiKey = "AIzaSyAsHYoxe5t5A8Zm8tPogYOfWFjAtyDionw";
 
+  late stt.SpeechToText _speech;
+  bool _isListening = false;
+
   @override
   void initState() {
     super.initState();
     fetchWeather();
+    _speech = stt.SpeechToText(); 
   }
 
   @override
@@ -64,6 +69,47 @@ class _HomeScreenState extends State<HomeScreen> {
     if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
       permission = await Geolocator.requestPermission();
     }
+  }
+
+  Future<void> _toggleListening() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (status) => debugPrint('Speech status: $status'),
+        onError: (error) => debugPrint('Speech error: $error'),
+      );
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (result) async {
+            if (result.finalResult) {
+              String spokenText = result.recognizedWords;
+              _searchController.text = spokenText; // fill search bar
+              await _getSuggestions(spokenText); // get suggestions
+              if (_suggestions.isNotEmpty) {
+                final first = _suggestions.first;
+                await _getPlaceDetails(first['place_id'], first['description']);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('No matching location found')),
+                );
+              }
+              _stopListening();
+            }
+          },
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Speech recognition not available')),
+        );
+      }
+    } else {
+      _stopListening();
+    }
+  }
+
+  void _stopListening() {
+    _speech.stop();
+    setState(() => _isListening = false);
   }
 
   Future<void> _getSuggestions(String input) async {
@@ -214,7 +260,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
                 decoration: InputDecoration(
                   hintText: 'Search for a building...',
-                  prefixIcon: Icon(Icons.search, color: theme.iconTheme.color),
+                  prefixIcon: IconButton(
+                    icon: Icon(
+                      _isListening ? Icons.mic_off : Icons.mic,
+                      color: _isListening ? Colors.red : theme.iconTheme.color,
+                    ),
+                    onPressed: _toggleListening,
+                  ),
+                  suffixIcon: Icon(Icons.search, color: theme.iconTheme.color),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(30),
                   ),

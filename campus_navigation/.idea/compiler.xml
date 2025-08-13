@@ -2,7 +2,16 @@
 <project version="4">
   <component name="CompilerConfiguration">
     <bytecodeTargetLevel>
-      <module name="android.speech_to_text" target="11" />
+      <module name="android.firebase_auth" target="17" />
+      <module name="android.firebase_core" target="17" />
+      <module name="android.flutter_plugin_android_lifecycle" target="17" />
+      <module name="android.geolocator_android" target="17" />
+      <module name="android.google_maps_flutter_android" target="17" />
+      <module name="android.path_provider_android" target="17" />
+      <module name="android.permission_handler_android" target="17" />
+      <module name="android.shared_preferences_android" target="17" />
+      <module name="android.speech_to_text" target="17" />
+      <module name="android.url_launcher_android" target="17" />
     </bytecodeTargetLevel>
   </component>
 </project>
