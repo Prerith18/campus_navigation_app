@@ -128,6 +128,12 @@
       "languageVersion": "3.1"
     },
     {
+      "name": "flip_card",
+      "rootUri": "file:///C:/Users/preri/AppData/Local/Pub/Cache/hosted/pub.dev/flip_card-0.7.0",
+      "packageUri": "lib/",
+      "languageVersion": "2.12"
+    },
+    {
       "name": "flutter",
       "rootUri": "file:///C:/flutter_windows_3.32.4-stable/flutter/packages/flutter",
       "packageUri": "lib/",

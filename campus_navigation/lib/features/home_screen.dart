@@ -1,10 +1,11 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // for hiding keyboard
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:campus_navigation/services/weather_service.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt; // NEW
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'notification_screen.dart';
 import 'timetable_screen.dart';
 
@@ -30,7 +31,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> _suggestions = [];
 
-  final String apiKey = "AIzaSyAsHYoxe5t5A8Zm8tPogYOfWFjAtyDionw";
+  final String apiKey = "AIzaSyAsHYoxe5t5A8Zm8tPogYOfWFjAtyDionw"; // 🔐 never commit raw keys
 
   late stt.SpeechToText _speech;
   bool _isListening = false;
@@ -39,7 +40,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     fetchWeather();
-    _speech = stt.SpeechToText(); 
+    _speech = stt.SpeechToText();
   }
 
   @override
@@ -84,15 +85,8 @@ class _HomeScreenState extends State<HomeScreen> {
             if (result.finalResult) {
               String spokenText = result.recognizedWords;
               _searchController.text = spokenText; // fill search bar
-              await _getSuggestions(spokenText); // get suggestions
-              if (_suggestions.isNotEmpty) {
-                final first = _suggestions.first;
-                await _getPlaceDetails(first['place_id'], first['description']);
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('No matching location found')),
-                );
-              }
+              await _getSuggestions(spokenText);   // get suggestions
+              await _resolveAndNavigate();          // 🔍 pick first + go
               _stopListening();
             }
           },
@@ -110,6 +104,28 @@ class _HomeScreenState extends State<HomeScreen> {
   void _stopListening() {
     _speech.stop();
     setState(() => _isListening = false);
+  }
+
+  // --- SEARCH CORE ---
+  Future<void> _onSearchPressed() async {
+    await _getSuggestions(_searchController.text);
+    await _resolveAndNavigate();
+  }
+
+  Future<void> _resolveAndNavigate() async {
+    // Always close keyboard & suggestions before navigation
+    FocusScope.of(context).unfocus();
+    await SystemChannels.textInput.invokeMethod('TextInput.hide');
+
+    if (_suggestions.isNotEmpty) {
+      final first = _suggestions.first;
+      await _getPlaceDetails(first['place_id'], first['description']);
+    } else {
+      // pass raw query to MapScreen (it will try text search)
+      widget.onSearch(_searchController.text, null, null);
+      setState(() => _suggestions = []);
+      widget.onNavigateToMap();
+    }
   }
 
   Future<void> _getSuggestions(String input) async {
@@ -159,14 +175,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (data['status'] == 'OK') {
       final loc = data['result']['geometry']['location'];
-      final lat = loc['lat'];
-      final lng = loc['lng'];
+      final double lat = (loc['lat'] as num).toDouble();
+      final double lng = (loc['lng'] as num).toDouble();
 
       widget.onSearch(name, lat, lng);
-      setState(() => _suggestions = []);
     } else {
       widget.onSearch(name, null, null);
     }
+
+    // Regardless of success, clear suggestions and navigate to the map
+    setState(() => _suggestions = []);
+    widget.onNavigateToMap();
   }
 
   Future<void> _launchUniversitySite() async {
@@ -254,9 +273,9 @@ class _HomeScreenState extends State<HomeScreen> {
               TextField(
                 controller: _searchController,
                 onChanged: _getSuggestions,
-                onSubmitted: (value) {
-                  widget.onSearch(value, null, null);
-                  setState(() => _suggestions = []);
+                onSubmitted: (value) async {
+                  await _getSuggestions(value);
+                  await _resolveAndNavigate();
                 },
                 decoration: InputDecoration(
                   hintText: 'Search for a building...',
@@ -267,11 +286,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     onPressed: _toggleListening,
                   ),
-                  suffixIcon: Icon(Icons.search, color: theme.iconTheme.color),
+                  suffixIcon: IconButton(
+                    icon: Icon(Icons.search, color: theme.iconTheme.color),
+                    onPressed: _onSearchPressed, // 🔍 make search button functional
+                  ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(30),
                   ),
                 ),
+                textInputAction: TextInputAction.search,
               ),
               if (_suggestions.isNotEmpty)
                 Container(
@@ -288,10 +311,15 @@ class _HomeScreenState extends State<HomeScreen> {
                       final suggestion = _suggestions[index];
                       return ListTile(
                         title: Text(suggestion['description']),
-                        onTap: () => _getPlaceDetails(
-                          suggestion['place_id'],
-                          suggestion['description'],
-                        ),
+                        onTap: () async {
+                          // Hide keyboard, clear suggestions, then navigate
+                          FocusScope.of(context).unfocus();
+                          await SystemChannels.textInput.invokeMethod('TextInput.hide');
+                          await _getPlaceDetails(
+                            suggestion['place_id'],
+                            suggestion['description'],
+                          );
+                        },
                       );
                     },
                   ),
@@ -304,11 +332,19 @@ class _HomeScreenState extends State<HomeScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _buildNavButton(context, Icons.navigation, 'Navigate', widget.onNavigateToMap),
+              _buildNavButton(context, Icons.navigation, 'Navigate', () async {
+                FocusScope.of(context).unfocus();
+                await SystemChannels.textInput.invokeMethod('TextInput.hide');
+                widget.onNavigateToMap();
+              }),
               _buildNavButton(context, Icons.schedule, 'Timetable', () {
                 Navigator.push(context, MaterialPageRoute(builder: (_) => const TimetableScreen()));
               }),
-              _buildNavButton(context, Icons.directions_bus, 'Buses', widget.onNavigateToMap),
+              _buildNavButton(context, Icons.directions_bus, 'Buses', () async {
+                FocusScope.of(context).unfocus();
+                await SystemChannels.textInput.invokeMethod('TextInput.hide');
+                widget.onNavigateToMap();
+              }),
             ],
           ),
 

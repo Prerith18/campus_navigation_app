@@ -10,6 +10,7 @@
         "cupertino_icons",
         "firebase_auth",
         "firebase_core",
+        "flip_card",
         "flutter",
         "geolocator",
         "google_fonts",
@@ -64,6 +65,13 @@
       "name": "cupertino_icons",
       "version": "1.0.8",
       "dependencies": []
+    },
+    {
+      "name": "flip_card",
+      "version": "0.7.0",
+      "dependencies": [
+        "flutter"
+      ]
     },
     {
       "name": "speech_to_text",
