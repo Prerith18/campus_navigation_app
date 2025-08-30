@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
+import 'package:xml/xml.dart' as xml;
 
 class MapScreen extends StatefulWidget {
   final String searchQuery;
@@ -30,16 +32,26 @@ class _MapScreenState extends State<MapScreen> {
   static const String apiKey = "AIzaSyAsHYoxe5t5A8Zm8tPogYOfWFjAtyDionw";
   static const LatLng campusCenter = LatLng(52.6219, -1.1244);
 
+  static const String bodsSiriUrl =
+      "https://data.bus-data.dft.gov.uk/api/v1/datafeed/18865/?api_key=1d4baf6fa7186850abd35eeff4b7f8af29a78fc1";
+
+  static const String kTriggerLiveBuses = '__BUS_LIVE__';
+
   LatLng? _currentLocation;
-  LatLng? _selectedLocation; // destination
+  LatLng? _selectedLocation;
   int _currentIndex = 0;
 
   Set<Marker> _markers = {};
   Set<Polyline> _polylines = {};
 
-  RouteInfo? _routeInfo; // distance/time for current route
+  RouteInfo? _routeInfo;
   bool _isWheelchairRoute = false;
-  
+
+  Timer? _busPollTimer;
+  BitmapDescriptor? _busIcon;
+  bool _liveBusesActive = false;
+  bool _didAutoFocusBuses = false;
+
   final List<_CampusBuilding> _featured = [
     _CampusBuilding(
       id: 'danielle-brown',
@@ -65,7 +77,8 @@ class _MapScreenState extends State<MapScreen> {
       id: 'sir-bob-burgess',
       name: 'Sir Bob Burgess Building',
       latLng: const LatLng(52.6208, -1.1272),
-      imageUrl: 'https://images.unsplash.com/photo-1541976076758-347942db1970?q=80&w=1200&auto=format&fit=crop',
+      imageUrl:
+          'https://images.unsplash.com/photo-1541976076758-347942db1970?q=80&w=1200&auto=format&fit=crop',
       isOpenNow: true,
       closesAt: '6:00 PM',
       address: 'Leicester LE2 6BF',
@@ -74,7 +87,8 @@ class _MapScreenState extends State<MapScreen> {
       id: 'charles-wilson',
       name: 'Charles Wilson Building',
       latLng: const LatLng(52.6222, -1.1234),
-      imageUrl: 'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?q=80&w=1200&auto=format&fit=crop',
+      imageUrl:
+          'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?q=80&w=1200&auto=format&fit=crop',
       isOpenNow: false,
       closesAt: 'Opens 9:00 AM',
       address: 'University of Leicester, Leicester LE1 7RH',
@@ -92,7 +106,8 @@ class _MapScreenState extends State<MapScreen> {
       id: 'david-wilson-library',
       name: 'David Wilson Library',
       latLng: const LatLng(52.62184, -1.12541),
-      imageUrl: 'https://images.unsplash.com/photo-1507842217343-583bb7270b66?q=80&w=1200&auto=format&fit=crop',
+      imageUrl:
+          'https://images.unsplash.com/photo-1507842217343-583bb7270b66?q=80&w=1200&auto=format&fit=crop',
       isOpenNow: true,
       closesAt: '12:00 AM',
       address: 'University Rd, Leicester LE1 7RH',
@@ -111,7 +126,8 @@ class _MapScreenState extends State<MapScreen> {
       id: 'engineering',
       name: 'Engineering Building',
       latLng: const LatLng(52.61990, -1.12410),
-      imageUrl: 'https://images.unsplash.com/photo-1541976076758-347942db1970?q=80&w=1200&auto=format&fit=crop',
+      imageUrl:
+          'https://images.unsplash.com/photo-1541976076758-347942db1970?q=80&w=1200&auto=format&fit=crop',
       isOpenNow: false,
       closesAt: 'Closed',
       address: 'University Rd, Leicester LE1 7RH',
@@ -120,7 +136,8 @@ class _MapScreenState extends State<MapScreen> {
       id: 'percy-gee',
       name: 'Percy Gee Building',
       latLng: const LatLng(52.62263, -1.12465),
-      imageUrl: 'https://images.unsplash.com/photo-1520975922284-9d8a25f5d20e?q=80&w=1200&auto=format&fit=crop',
+      imageUrl:
+          'https://images.unsplash.com/photo-1520975922284-9d8a25f5d20e?q=80&w=1200&auto=format&fit=crop',
       isOpenNow: true,
       closesAt: '5:00 PM',
       address: "Mayor's Walk, Leicester LE1 7RH",
@@ -129,7 +146,8 @@ class _MapScreenState extends State<MapScreen> {
       id: 'ken-edwards',
       name: 'Ken Edwards Building',
       latLng: const LatLng(52.6215, -1.1250),
-      imageUrl: 'https://images.unsplash.com/photo-1507842217343-583bb7270b66?q=80&w=1200&auto=format&fit=crop',
+      imageUrl:
+          'https://images.unsplash.com/photo-1507842217343-583bb7270b66?q=80&w=1200&auto=format&fit=crop',
       isOpenNow: true,
       closesAt: '6:00 PM',
       address: 'Ken Edwards Building, University Rd, Leicester LE1 7RH',
@@ -138,7 +156,8 @@ class _MapScreenState extends State<MapScreen> {
       id: 'attenborough',
       name: 'Attenborough Building',
       latLng: const LatLng(52.6220, -1.1260),
-      imageUrl: 'https://images.unsplash.com/photo-1520975922284-9d8a25f5d20e?q=80&w=1200&auto=format&fit=crop',
+      imageUrl:
+          'https://images.unsplash.com/photo-1520975922284-9d8a25f5d20e?q=80&w=1200&auto=format&fit=crop',
       isOpenNow: true,
       closesAt: '6:00 PM',
       address: 'University of Leicester, University Rd, Leicester LE1 7RH',
@@ -149,9 +168,15 @@ class _MapScreenState extends State<MapScreen> {
   void initState() {
     super.initState();
     _initLocation();
+    _loadBusIcon();
 
-    // Handle incoming search → place marker and highlight carousel
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Start live buses if triggered from Home
+      if (widget.searchQuery == kTriggerLiveBuses) {
+        _startLiveBuses();
+        return;
+      }
+
       if (widget.searchLat != null && widget.searchLng != null) {
         final coords = LatLng(widget.searchLat!, widget.searchLng!);
         await _selectDestination(
@@ -173,10 +198,10 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void dispose() {
     _pageCtrl.dispose();
+    _busPollTimer?.cancel();
     super.dispose();
   }
 
-  // ===== Location =====
   Future<void> _initLocation() async {
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -198,7 +223,9 @@ class _MapScreenState extends State<MapScreen> {
         return;
       }
 
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
       setState(() {
         _currentLocation = LatLng(pos.latitude, pos.longitude);
         _upsertMarker(
@@ -206,16 +233,17 @@ class _MapScreenState extends State<MapScreen> {
             markerId: const MarkerId("current_location"),
             position: _currentLocation!,
             infoWindow: const InfoWindow(title: "You are here"),
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueAzure,
+            ),
           ),
         );
       });
-    } catch (e) {
+    } catch (_) {
       _toast('Failed to get location');
     }
   }
 
-  // ===== Map helpers =====
   Future<void> _animateTo(LatLng latLng, {double zoom = 17}) async {
     final c = await _controller.future;
     await c.animateCamera(CameraUpdate.newLatLngZoom(latLng, zoom));
@@ -226,7 +254,8 @@ class _MapScreenState extends State<MapScreen> {
       await _animateTo(_currentLocation!, zoom: 17);
     } else {
       await _initLocation();
-      if (_currentLocation != null) await _animateTo(_currentLocation!, zoom: 17);
+      if (_currentLocation != null)
+        await _animateTo(_currentLocation!, zoom: 17);
     }
   }
 
@@ -238,18 +267,20 @@ class _MapScreenState extends State<MapScreen> {
   Future<void> _selectDestination(LatLng coords, String title) async {
     setState(() {
       _selectedLocation = coords;
-      _upsertMarker(Marker(
-        markerId: const MarkerId('searched'),
-        position: coords,
-        infoWindow: InfoWindow(title: title),
-      ));
+      _upsertMarker(
+        Marker(
+          markerId: const MarkerId('searched'),
+          position: coords,
+          infoWindow: InfoWindow(title: title),
+        ),
+      );
       _polylines.clear();
       _routeInfo = null;
     });
     await _animateTo(coords);
   }
 
-  // ===== Search helpers (highlight carousel) =====
+  //
   bool _highlightByName(String q) {
     final query = q.toLowerCase().trim();
     final i = _featured.indexWhere((b) => b.name.toLowerCase().contains(query));
@@ -280,8 +311,11 @@ class _MapScreenState extends State<MapScreen> {
 
   void _jumpToCard(int index) {
     _currentIndex = index;
-    _pageCtrl.animateToPage(index,
-        duration: const Duration(milliseconds: 350), curve: Curves.easeOut);
+    _pageCtrl.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOut,
+    );
   }
 
   double _haversine(LatLng a, LatLng b) {
@@ -290,14 +324,14 @@ class _MapScreenState extends State<MapScreen> {
     final dLng = _deg2rad(b.longitude - a.longitude);
     final la1 = _deg2rad(a.latitude);
     final la2 = _deg2rad(b.latitude);
-    final h = sin(dLat / 2) * sin(dLat / 2) +
+    final h =
+        sin(dLat / 2) * sin(dLat / 2) +
         cos(la1) * cos(la2) * sin(dLng / 2) * sin(dLng / 2);
     return 2 * R * asin(sqrt(h));
   }
 
   double _deg2rad(double d) => d * pi / 180.0;
 
-  // ===== Directions (dotted line + distance/time) =====
   Timer? _routeDebounce;
   Future<void> _showRoute({required bool wheelchair}) async {
     if (_selectedLocation == null) {
@@ -331,11 +365,7 @@ class _MapScreenState extends State<MapScreen> {
                   ? Theme.of(context).colorScheme.secondary
                   : Theme.of(context).colorScheme.primary,
               width: 6,
-              patterns: [
-                // dotted effect like Google Maps walking
-                PatternItem.dot,
-                PatternItem.gap(12),
-              ],
+              patterns: [PatternItem.dot, PatternItem.gap(12)],
             ),
           };
         });
@@ -346,20 +376,30 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  Future<RouteInfo> _getRouteWithStats(LatLng origin, LatLng dest, {required bool wheelchair}) async {
+  Future<RouteInfo> _getRouteWithStats(
+    LatLng origin,
+    LatLng dest, {
+    required bool wheelchair,
+  }) async {
     final params = {
       'origin': '${origin.latitude},${origin.longitude}',
       'destination': '${dest.latitude},${dest.longitude}',
       'mode': 'walking',
       'key': apiKey,
     };
-    final url = Uri.https('maps.googleapis.com', '/maps/api/directions/json', params);
+    final url = Uri.https(
+      'maps.googleapis.com',
+      '/maps/api/directions/json',
+      params,
+    );
     final resp = await http.get(url);
     if (resp.statusCode != 200) throw HttpException('HTTP ${resp.statusCode}');
     final data = json.decode(resp.body) as Map<String, dynamic>;
     if (data['status'] != 'OK') {
       final em = (data['error_message'] as String?) ?? '';
-      throw Exception('Directions: ${data['status']} ${em.isNotEmpty ? '· $em' : ''}');
+      throw Exception(
+        'Directions: ${data['status']} ${em.isNotEmpty ? '· $em' : ''}',
+      );
     }
 
     final routes = (data['routes'] as List);
@@ -440,24 +480,28 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  // ===== Optional: text search near campus (fallback) =====
   Future<void> _searchPlace(String query) async {
     if (query.trim().isEmpty) return;
     try {
-      final url = Uri.https('maps.googleapis.com', '/maps/api/place/textsearch/json', {
-        'query': query,
-        'location': '${campusCenter.latitude},${campusCenter.longitude}',
-        'radius': '2000',
-        'key': apiKey,
-      });
+      final url =
+          Uri.https('maps.googleapis.com', '/maps/api/place/textsearch/json', {
+            'query': query,
+            'location': '${campusCenter.latitude},${campusCenter.longitude}',
+            'radius': '2000',
+            'key': apiKey,
+          });
       final resp = await http.get(url);
-      if (resp.statusCode != 200) throw HttpException('HTTP ${resp.statusCode}');
+      if (resp.statusCode != 200)
+        throw HttpException('HTTP ${resp.statusCode}');
       final data = json.decode(resp.body) as Map<String, dynamic>;
       if (data['status'] == 'OK' && (data['results'] as List).isNotEmpty) {
         final result = (data['results'] as List).first as Map<String, dynamic>;
         final loc = result['geometry']['location'] as Map<String, dynamic>;
         final name = (result['name'] as String?) ?? query;
-        final latLng = LatLng((loc['lat'] as num).toDouble(), (loc['lng'] as num).toDouble());
+        final latLng = LatLng(
+          (loc['lat'] as num).toDouble(),
+          (loc['lng'] as num).toDouble(),
+        );
         await _selectDestination(latLng, name);
         _highlightNearest(latLng);
       } else {
@@ -473,17 +517,151 @@ class _MapScreenState extends State<MapScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  // ===== UI =====
+  Future<void> _loadBusIcon() async {
+    try {
+      _busIcon = await BitmapDescriptor.fromAssetImage(
+        const ImageConfiguration(size: Size(48, 48)),
+        'assets/images/bus_marker.png', // optional; fallback below
+      );
+    } catch (_) {
+      _busIcon = BitmapDescriptor.defaultMarkerWithHue(
+        BitmapDescriptor.hueOrange,
+      );
+    }
+  }
+
+  void _startLiveBuses() {
+    if (_liveBusesActive) return;
+    _liveBusesActive = true;
+    _didAutoFocusBuses = false;
+
+    _animateTo(campusCenter, zoom: 14);
+
+    _busPollTimer?.cancel();
+    _busPollTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _fetchAndRenderSiri(),
+    );
+    _fetchAndRenderSiri();
+  }
+
+  void _stopLiveBuses() {
+    _busPollTimer?.cancel();
+    _busPollTimer = null;
+    _liveBusesActive = false;
+    setState(() {
+      _markers.removeWhere((m) => m.markerId.value.startsWith('bus_'));
+    });
+  }
+
+  Future<void> _fetchAndRenderSiri() async {
+    try {
+      final resp = await http.get(Uri.parse(bodsSiriUrl));
+      if (resp.statusCode != 200) {
+        _toast('SIRI feed HTTP ${resp.statusCode}');
+        return;
+      }
+
+      final doc = xml.XmlDocument.parse(resp.body);
+
+      final vehicleActivities = doc.descendants
+          .whereType<xml.XmlElement>()
+          .where((e) => e.name.local == 'VehicleActivity');
+
+      final newBusMarkers = <Marker>{};
+      LatLng? firstPos;
+
+      for (final va in vehicleActivities) {
+        final mvj = va.descendants.whereType<xml.XmlElement>().firstWhere(
+          (e) => e.name.local == 'MonitoredVehicleJourney',
+          orElse: () => xml.XmlElement(xml.XmlName('')),
+        );
+        if (mvj.name.local.isEmpty) continue;
+
+        String id =
+            _textOfFirst(mvj, 'VehicleRef') ??
+            _textOfFirst(va, 'VehicleRef') ??
+            'unknown';
+
+        final loc = mvj.descendants.whereType<xml.XmlElement>().firstWhere(
+          (e) => e.name.local == 'VehicleLocation',
+          orElse: () => xml.XmlElement(xml.XmlName('')),
+        );
+        if (loc.name.local.isEmpty) continue;
+
+        final latStr = _textOfFirst(loc, 'Latitude');
+        final lngStr = _textOfFirst(loc, 'Longitude');
+        if (latStr == null || lngStr == null) continue;
+
+        final lat = double.tryParse(latStr);
+        final lng = double.tryParse(lngStr);
+        if (lat == null || lng == null) continue;
+
+        final bearingStr = _textOfFirst(mvj, 'Bearing');
+        final bearing = double.tryParse(bearingStr ?? '0') ?? 0.0;
+
+        final pos = LatLng(lat, lng);
+        firstPos ??= pos;
+
+        final marker = Marker(
+          markerId: MarkerId('bus_$id'),
+          position: pos,
+          rotation: bearing,
+          flat: true,
+          anchor: const Offset(0.5, 0.5),
+          icon:
+              _busIcon ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+          infoWindow: const InfoWindow(title: 'Centrebus (live)'),
+        );
+
+        newBusMarkers.add(marker);
+      }
+
+      if (!mounted) return;
+
+      if (newBusMarkers.isEmpty) {
+        _toast('No live Centrebus vehicles found right now. Try again soon.');
+      } else {
+        setState(() {
+          _markers.removeWhere((m) => m.markerId.value.startsWith('bus_'));
+          _markers.addAll(newBusMarkers);
+        });
+
+        // Auto-focus to where the buses actually are (only once per session toggle)
+        if (!_didAutoFocusBuses && firstPos != null) {
+          final c = await _controller.future;
+          await c.animateCamera(CameraUpdate.newLatLngZoom(firstPos!, 13));
+          _didAutoFocusBuses = true;
+        }
+      }
+    } catch (e) {
+      debugPrint('SIRI fetch error: $e');
+      _toast('Could not parse live bus feed.');
+    }
+  }
+
+  String? _textOfFirst(xml.XmlElement parent, String localName) {
+    final n = parent.descendants.whereType<xml.XmlElement>().firstWhere(
+      (e) => e.name.local == localName,
+      orElse: () => xml.XmlElement(xml.XmlName('')),
+    );
+    if (n.name.local.isEmpty) return null;
+    return n.text.trim().isEmpty ? null : n.text.trim();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
     return Scaffold(
-      // No AppBar (per your request)
       body: Stack(
         children: [
-          // MAP
           GoogleMap(
-            initialCameraPosition: const CameraPosition(target: campusCenter, zoom: 16),
+            initialCameraPosition: const CameraPosition(
+              target: campusCenter,
+              zoom: 16,
+            ),
             myLocationEnabled: true,
             myLocationButtonEnabled: false,
             zoomControlsEnabled: false,
@@ -497,11 +675,70 @@ class _MapScreenState extends State<MapScreen> {
             },
           ),
 
+          if (_routeInfo != null)
+            Positioned(
+              right: 16,
+              bottom: 270,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 8,
+                  horizontal: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.cardColor,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: const [
+                    BoxShadow(blurRadius: 6, color: Colors.black26),
+                  ],
+                  border: Border.all(
+                    color: _isWheelchairRoute
+                        ? theme.colorScheme.secondary
+                        : theme.colorScheme.primary,
+                    width: 1,
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.route, size: 18),
+                        const SizedBox(width: 6),
+                        Text(
+                          _routeInfo!.distanceText.isNotEmpty
+                              ? _routeInfo!.distanceText
+                              : _formatDistance(_routeInfo!.distanceMeters),
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _isWheelchairRoute ? Icons.accessible : Icons.timer,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _routeInfo!.durationText.isNotEmpty
+                              ? _routeInfo!.durationText
+                              : _formatDuration(_routeInfo!.durationSeconds),
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
 
-          // CAROUSEL (lowered a little)
           SafeArea(
             bottom: true,
-            minimum: const EdgeInsets.only(bottom: 90), // was 150 → lowered further
+            minimum: const EdgeInsets.only(bottom: 190),
             child: Align(
               alignment: Alignment.bottomCenter,
               child: SizedBox(
@@ -528,7 +765,9 @@ class _MapScreenState extends State<MapScreen> {
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                              color: selected ? theme.colorScheme.primary : Colors.transparent,
+                              color: selected
+                                  ? theme.colorScheme.primary
+                                  : Colors.transparent,
                               width: 1.2,
                             ),
                           ),
@@ -537,7 +776,11 @@ class _MapScreenState extends State<MapScreen> {
                             onCenter: () async {
                               _currentIndex = i;
                               await _selectDestination(b.latLng, b.name);
-                              _pageCtrl.animateToPage(i, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+                              _pageCtrl.animateToPage(
+                                i,
+                                duration: const Duration(milliseconds: 250),
+                                curve: Curves.easeOut,
+                              );
                             },
                           ),
                         ),
@@ -549,66 +792,6 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
 
-          // DISTANCE/TIME BUBBLE (compact, right side above carousel)
-          if (_routeInfo != null)
-            Positioned(
-              right: 16,
-              bottom: 320, // tweak to sit just above carousel
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 1),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
-                  borderRadius: BorderRadius.circular(10),
-                  boxShadow: const [BoxShadow(blurRadius: 6, color: Colors.black26)],
-                  border: Border.all(
-                    color: _isWheelchairRoute
-                        ? Theme.of(context).colorScheme.secondary
-                        : Theme.of(context).colorScheme.primary,
-                    width: 1,
-                  ),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.route, size: 18), // distance icon
-                        const SizedBox(width: 6),
-                        Text(
-                          _routeInfo!.distanceText.isNotEmpty
-                              ? _routeInfo!.distanceText
-                              : _formatDistance(_routeInfo!.distanceMeters),
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _isWheelchairRoute ? Icons.accessible : Icons.timer,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          _routeInfo!.durationText.isNotEmpty
-                              ? _routeInfo!.durationText
-                              : _formatDuration(_routeInfo!.durationSeconds),
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-
-
-          // BOTTOM BUTTONS (evenly spaced: walk, wheelchair, current location)
           Positioned(
             left: 0,
             right: 0,
@@ -633,15 +816,38 @@ class _MapScreenState extends State<MapScreen> {
           ),
         ],
       ),
+
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(bottom: 88.0),
+        child: FloatingActionButton.extended(
+          onPressed: () {
+            if (_liveBusesActive) {
+              _stopLiveBuses();
+              _toast('Live buses off');
+            } else {
+              _startLiveBuses();
+              _toast('Live buses on');
+            }
+          },
+          backgroundColor: theme.colorScheme.primary,
+          foregroundColor: theme.colorScheme.onPrimary,
+          icon: const Icon(Icons.directions_bus),
+          label: Text(_liveBusesActive ? 'Live off' : 'Live buses'),
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 }
 
-// ===== Circular icon button (matches Home) =====
 class _RoundIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onPressed;
-  const _RoundIconButton({required this.icon, required this.onPressed, super.key});
+  const _RoundIconButton({
+    required this.icon,
+    required this.onPressed,
+    super.key,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -660,14 +866,13 @@ class _RoundIconButton extends StatelessWidget {
   }
 }
 
-// ===== Model =====
 class _CampusBuilding {
   final String id;
   final String name;
   final LatLng latLng;
   final String imageUrl;
   final bool isOpenNow;
-  final String closesAt; // e.g., '5:00 PM' or 'Opens 06:30'
+  final String closesAt;
   final String? address;
   final String? phone;
   final String? website;
@@ -687,12 +892,15 @@ class _CampusBuilding {
   });
 }
 
-// ===== Flip cards (your animation) =====
 class FlippableBuildingCard extends StatefulWidget {
   final _CampusBuilding building;
-  final VoidCallback? onCenter; // center map + marker
+  final VoidCallback? onCenter;
 
-  const FlippableBuildingCard({required this.building, this.onCenter, super.key});
+  const FlippableBuildingCard({
+    required this.building,
+    this.onCenter,
+    super.key,
+  });
 
   @override
   State<FlippableBuildingCard> createState() => _FlippableBuildingCardState();
@@ -706,7 +914,7 @@ class _FlippableBuildingCardState extends State<FlippableBuildingCard> {
     return GestureDetector(
       onTap: () {
         setState(() => _showBack = !_showBack);
-        widget.onCenter?.call(); // also select/center on tap
+        widget.onCenter?.call();
       },
       child: AnimatedSwitcher(
         duration: const Duration(milliseconds: 600),
@@ -720,7 +928,8 @@ class _FlippableBuildingCardState extends State<FlippableBuildingCard> {
               var tilt = (animation.value - 0.5).abs() - 0.5;
               tilt *= isUnder ? -0.003 : 0.003;
               return Transform(
-                transform: Matrix4.rotationY(rotate.value)..setEntry(3, 0, tilt),
+                transform: Matrix4.rotationY(rotate.value)
+                  ..setEntry(3, 0, tilt),
                 alignment: Alignment.center,
                 child: child,
               );
@@ -763,7 +972,8 @@ class _FrontCard extends StatelessWidget {
               height: 130,
               width: double.infinity,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(height: 130, color: Colors.grey.shade300),
+              errorBuilder: (_, __, ___) =>
+                  Container(height: 130, color: Colors.grey.shade300),
             ),
           ),
           Padding(
@@ -775,7 +985,10 @@ class _FrontCard extends StatelessWidget {
                   building.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -835,17 +1048,22 @@ class _BackCard extends StatelessWidget {
             ),
           const SizedBox(height: 10),
           if (building.hours.isNotEmpty) ...[
-            const Text("Opening Hours:", style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text(
+              "Opening Hours:",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 6),
             Expanded(
               child: SingleChildScrollView(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: building.hours.entries
-                      .map((e) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 1.5),
-                    child: Text("${e.key}: ${e.value}"),
-                  ))
+                      .map(
+                        (e) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 1.5),
+                          child: Text("${e.key}: ${e.value}"),
+                        ),
+                      )
                       .toList(),
                 ),
               ),
@@ -858,7 +1076,6 @@ class _BackCard extends StatelessWidget {
   }
 }
 
-// ===== Route info model + formatters =====
 class RouteInfo {
   final List<LatLng> points;
   final String distanceText;
