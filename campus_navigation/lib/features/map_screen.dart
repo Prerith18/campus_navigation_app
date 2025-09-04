@@ -1,7 +1,11 @@
+// lib/features/map_screen.dart
+// (unchanged header comments omitted for brevity)
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -9,16 +13,23 @@ import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:xml/xml.dart' as xml;
 
+import 'package:campus_navigation/models/campus_poi.dart';
+import 'package:campus_navigation/services/campus_poi_repository.dart';
+
 class MapScreen extends StatefulWidget {
   final String searchQuery;
   final double? searchLat;
   final double? searchLng;
+  final bool isAdmin;
+  final bool autoRouteOnOpen;
 
   const MapScreen({
     super.key,
-    required this.searchQuery,
+    this.searchQuery = '',
     this.searchLat,
     this.searchLng,
+    this.isAdmin = false,
+    this.autoRouteOnOpen = false,
   });
 
   @override
@@ -28,6 +39,7 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   final Completer<GoogleMapController> _controller = Completer();
   final PageController _pageCtrl = PageController(viewportFraction: 0.82);
+  final TextEditingController _adminSearchCtrl = TextEditingController();
 
   static const String apiKey = "AIzaSyAsHYoxe5t5A8Zm8tPogYOfWFjAtyDionw";
   static const LatLng campusCenter = LatLng(52.6219, -1.1244);
@@ -35,173 +47,118 @@ class _MapScreenState extends State<MapScreen> {
   static const String bodsSiriUrl =
       "https://data.bus-data.dft.gov.uk/api/v1/datafeed/18865/?api_key=1d4baf6fa7186850abd35eeff4b7f8af29a78fc1";
 
-  static const String kTriggerLiveBuses = '__BUS_LIVE__';
-
   LatLng? _currentLocation;
   LatLng? _selectedLocation;
   int _currentIndex = 0;
 
   Set<Marker> _markers = {};
   Set<Polyline> _polylines = {};
+  bool _searchedVisible = false;
 
   RouteInfo? _routeInfo;
   bool _isWheelchairRoute = false;
 
-  Timer? _busPollTimer;
-  BitmapDescriptor? _busIcon;
-  bool _liveBusesActive = false;
-  bool _didAutoFocusBuses = false;
+  final List<CampusPoi> _pois = [];
+  StreamSubscription<List<CampusPoi>>? _poiSub;
 
-  final List<_CampusBuilding> _featured = [
-    _CampusBuilding(
-      id: 'danielle-brown',
-      name: 'Danielle Brown Sports Centre',
-      latLng: const LatLng(52.6212, -1.1239),
-      imageUrl: 'https://le.ac.uk/-/media/uol/images/sport/sports-centre.jpg',
-      isOpenNow: false,
-      closesAt: 'Opens 06:30',
-      address: 'University Road, Leicester LE1 7RH',
-      phone: '0116 252 3118',
-      website: 'https://le.ac.uk/',
-      hours: const {
-        'Sunday': '08:00 - 19:30',
-        'Monday': '06:30 - 22:00',
-        'Tuesday': '06:30 - 22:00',
-        'Wednesday': '06:30 - 22:00',
-        'Thursday': '06:30 - 22:00',
-        'Friday': '06:30 - 22:00',
-        'Saturday': '08:00 - 19:30',
-      },
-    ),
-    _CampusBuilding(
-      id: 'sir-bob-burgess',
-      name: 'Sir Bob Burgess Building',
-      latLng: const LatLng(52.6208, -1.1272),
-      imageUrl:
-          'https://images.unsplash.com/photo-1541976076758-347942db1970?q=80&w=1200&auto=format&fit=crop',
-      isOpenNow: true,
-      closesAt: '6:00 PM',
-      address: 'Leicester LE2 6BF',
-    ),
-    _CampusBuilding(
-      id: 'charles-wilson',
-      name: 'Charles Wilson Building',
-      latLng: const LatLng(52.6222, -1.1234),
-      imageUrl:
-          'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?q=80&w=1200&auto=format&fit=crop',
-      isOpenNow: false,
-      closesAt: 'Opens 9:00 AM',
-      address: 'University of Leicester, Leicester LE1 7RH',
-      hours: const {
-        'Sunday': 'Closed',
-        'Monday': '09:00 - 18:00',
-        'Tuesday': '09:00 - 18:00',
-        'Wednesday': '09:00 - 18:00',
-        'Thursday': '09:00 - 18:00',
-        'Friday': '09:00 - 18:00',
-        'Saturday': 'Closed',
-      },
-    ),
-    _CampusBuilding(
-      id: 'david-wilson-library',
-      name: 'David Wilson Library',
-      latLng: const LatLng(52.62184, -1.12541),
-      imageUrl:
-          'https://images.unsplash.com/photo-1507842217343-583bb7270b66?q=80&w=1200&auto=format&fit=crop',
-      isOpenNow: true,
-      closesAt: '12:00 AM',
-      address: 'University Rd, Leicester LE1 7RH',
-      website: 'https://le.ac.uk/library',
-      hours: const {
-        'Sunday': '08:00 - 00:00',
-        'Monday': '08:00 - 00:00',
-        'Tuesday': '08:00 - 00:00',
-        'Wednesday': '08:00 - 00:00',
-        'Thursday': '08:00 - 00:00',
-        'Friday': '08:00 - 00:00',
-        'Saturday': '08:00 - 00:00',
-      },
-    ),
-    _CampusBuilding(
-      id: 'engineering',
-      name: 'Engineering Building',
-      latLng: const LatLng(52.61990, -1.12410),
-      imageUrl:
-          'https://images.unsplash.com/photo-1541976076758-347942db1970?q=80&w=1200&auto=format&fit=crop',
-      isOpenNow: false,
-      closesAt: 'Closed',
-      address: 'University Rd, Leicester LE1 7RH',
-    ),
-    _CampusBuilding(
-      id: 'percy-gee',
-      name: 'Percy Gee Building',
-      latLng: const LatLng(52.62263, -1.12465),
-      imageUrl:
-          'https://images.unsplash.com/photo-1520975922284-9d8a25f5d20e?q=80&w=1200&auto=format&fit=crop',
-      isOpenNow: true,
-      closesAt: '5:00 PM',
-      address: "Mayor's Walk, Leicester LE1 7RH",
-    ),
-    _CampusBuilding(
-      id: 'ken-edwards',
-      name: 'Ken Edwards Building',
-      latLng: const LatLng(52.6215, -1.1250),
-      imageUrl:
-          'https://images.unsplash.com/photo-1507842217343-583bb7270b66?q=80&w=1200&auto=format&fit=crop',
-      isOpenNow: true,
-      closesAt: '6:00 PM',
-      address: 'Ken Edwards Building, University Rd, Leicester LE1 7RH',
-    ),
-    _CampusBuilding(
-      id: 'attenborough',
-      name: 'Attenborough Building',
-      latLng: const LatLng(52.6220, -1.1260),
-      imageUrl:
-          'https://images.unsplash.com/photo-1520975922284-9d8a25f5d20e?q=80&w=1200&auto=format&fit=crop',
-      isOpenNow: true,
-      closesAt: '6:00 PM',
-      address: 'University of Leicester, University Rd, Leicester LE1 7RH',
-    ),
-  ];
+  // Live buses
+  bool _liveOn = false;
+  bool _didAutoFocusBuses = false;
+  Timer? _busPollTimer;
+  final Map<String, LatLng> _busPrevPos = {};
+  final Map<String, Timer> _busAnimTimers = {};
+  BitmapDescriptor? _emojiIcon;
+
+  // ---- Map style (dark mode support)
+  Brightness? _lastBrightness;
+
+  // A compact dark style that keeps labels readable
+  static const String _mapStyleDark = '''
+[
+  {"elementType":"geometry","stylers":[{"color":"#242f3e"}]},
+  {"elementType":"labels.text.stroke","stylers":[{"color":"#242f3e"}]},
+  {"elementType":"labels.text.fill","stylers":[{"color":"#746855"}]},
+  {"featureType":"administrative.locality","elementType":"labels.text.fill","stylers":[{"color":"#d59563"}]},
+  {"featureType":"poi","elementType":"labels.text.fill","stylers":[{"color":"#d59563"}]},
+  {"featureType":"poi.park","elementType":"geometry","stylers":[{"color":"#263c3f"}]},
+  {"featureType":"poi.park","elementType":"labels.text.fill","stylers":[{"color":"#6b9a76"}]},
+  {"featureType":"road","elementType":"geometry","stylers":[{"color":"#38414e"}]},
+  {"featureType":"road","elementType":"geometry.stroke","stylers":[{"color":"#212a37"}]},
+  {"featureType":"road","elementType":"labels.text.fill","stylers":[{"color":"#9ca5b3"}]},
+  {"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#746855"}]},
+  {"featureType":"road.highway","elementType":"geometry.stroke","stylers":[{"color":"#1f2835"}]},
+  {"featureType":"road.highway","elementType":"labels.text.fill","stylers":[{"color":"#f3d19c"}]},
+  {"featureType":"transit","elementType":"geometry","stylers":[{"color":"#2f3948"}]},
+  {"featureType":"transit.station","elementType":"labels.text.fill","stylers":[{"color":"#d59563"}]},
+  {"featureType":"water","elementType":"geometry","stylers":[{"color":"#17263c"}]},
+  {"featureType":"water","elementType":"labels.text.fill","stylers":[{"color":"#515c6d"}]},
+  {"featureType":"water","elementType":"labels.text.stroke","stylers":[{"color":"#17263c"}]}
+]
+''';
 
   @override
   void initState() {
     super.initState();
     _initLocation();
-    _loadBusIcon();
+    _loadEmojiIcon();
+    _subscribePois();
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      // Start live buses if triggered from Home
-      if (widget.searchQuery == kTriggerLiveBuses) {
-        _startLiveBuses();
-        return;
-      }
-
       if (widget.searchLat != null && widget.searchLng != null) {
         final coords = LatLng(widget.searchLat!, widget.searchLng!);
-        await _selectDestination(
+        await _setDestination(
           coords,
-          widget.searchQuery.isEmpty ? 'Selected location' : widget.searchQuery,
+          title: widget.searchQuery.isEmpty ? 'Selected location' : widget.searchQuery,
+          addMarker: true,
         );
-        _highlightNearest(coords);
-      } else if (widget.searchQuery.isNotEmpty) {
-        final matched = _highlightByName(widget.searchQuery);
-        if (!matched) {
-          await _searchPlace(widget.searchQuery);
+
+        if (widget.autoRouteOnOpen) {
+          Future.delayed(const Duration(milliseconds: 100), () {
+            _showRoute(wheelchair: false);
+          });
         }
-      } else {
-        _animateTo(campusCenter, zoom: 16);
       }
+
+      setState(() {
+        _markers.removeWhere((m) {
+          final id = m.markerId.value;
+          return !(id == 'current_location' || id == 'searched' || id.startsWith('bus_'));
+        });
+      });
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _applyMapStyleForTheme());
   }
 
   @override
   void dispose() {
     _pageCtrl.dispose();
+    _poiSub?.cancel();
     _busPollTimer?.cancel();
+    for (final t in _busAnimTimers.values) {
+      t.cancel();
+    }
+    _busAnimTimers.clear();
     super.dispose();
   }
 
+  // ---------- Firestore POIs ----------
+  void _subscribePois() {
+    _poiSub = CampusPoiRepository.instance.streamAllActiveOrdered().listen((list) {
+      if (!mounted) return;
+      setState(() {
+        _pois
+          ..clear()
+          ..addAll(list);
+      });
+    }, onError: (e) => debugPrint('POI stream error: $e'));
+  }
+
+  // ---------- Location ----------
   Future<void> _initLocation() async {
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -223,21 +180,18 @@ class _MapScreenState extends State<MapScreen> {
         return;
       }
 
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
+      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
       setState(() {
         _currentLocation = LatLng(pos.latitude, pos.longitude);
-        _upsertMarker(
-          Marker(
-            markerId: const MarkerId("current_location"),
-            position: _currentLocation!,
-            infoWindow: const InfoWindow(title: "You are here"),
-            icon: BitmapDescriptor.defaultMarkerWithHue(
-              BitmapDescriptor.hueAzure,
-            ),
-          ),
-        );
+        final next = <Marker>{..._markers}
+          ..removeWhere((m) => m.markerId.value == 'current_location');
+        next.add(Marker(
+          markerId: const MarkerId('current_location'),
+          position: _currentLocation!,
+          infoWindow: const InfoWindow(title: 'You are here'),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        ));
+        _markers = next;
       });
     } catch (_) {
       _toast('Failed to get location');
@@ -250,92 +204,83 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _animateToCurrent() async {
-    if (_currentLocation != null) {
-      await _animateTo(_currentLocation!, zoom: 17);
-    } else {
-      await _initLocation();
-      if (_currentLocation != null)
-        await _animateTo(_currentLocation!, zoom: 17);
+    try {
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null) {
+        await _animateTo(LatLng(last.latitude, last.longitude), zoom: 17);
+      }
+      final fresh = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.best,
+        timeLimit: const Duration(seconds: 6),
+      );
+      final here = LatLng(fresh.latitude, fresh.longitude);
+      if (!mounted) return;
+      setState(() {
+        final next = <Marker>{..._markers}
+          ..removeWhere((m) => m.markerId.value == 'current_location');
+        next.add(Marker(
+          markerId: const MarkerId('current_location'),
+          position: here,
+          infoWindow: const InfoWindow(title: 'You are here'),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        ));
+        _markers = next;
+        _currentLocation = here;
+      });
+      await _animateTo(here, zoom: 17);
+    } catch (_) {
+      _toast('Couldn’t get your location. Check GPS & permissions.');
     }
   }
 
-  void _upsertMarker(Marker marker) {
-    _markers.removeWhere((m) => m.markerId == marker.markerId);
-    _markers.add(marker);
-  }
-
-  Future<void> _selectDestination(LatLng coords, String title) async {
+  // ---------- Selection / clear ----------
+  Future<void> _setDestination(LatLng coords, {String? title, bool addMarker = false}) async {
     setState(() {
       _selectedLocation = coords;
-      _upsertMarker(
-        Marker(
+      _searchedVisible = addMarker;
+
+      final next = <Marker>{..._markers}..removeWhere((m) => m.markerId.value == 'searched');
+
+      if (_searchedVisible) {
+        next.add(Marker(
           markerId: const MarkerId('searched'),
           position: coords,
-          infoWindow: InfoWindow(title: title),
-        ),
-      );
+          infoWindow: title == null ? const InfoWindow() : InfoWindow(title: title),
+          onTap: widget.isAdmin ? _openEditorForSearched : null,
+        ));
+      }
+      _markers = next;
+
       _polylines.clear();
       _routeInfo = null;
     });
     await _animateTo(coords);
   }
 
-  //
-  bool _highlightByName(String q) {
-    final query = q.toLowerCase().trim();
-    final i = _featured.indexWhere((b) => b.name.toLowerCase().contains(query));
-    if (i >= 0) {
-      _jumpToCard(i);
-      final b = _featured[i];
-      _selectDestination(b.latLng, b.name);
-      return true;
-    } else {
-      return false;
-    }
+  void _clearNavigation() {
+    setState(() {
+      _selectedLocation = null;
+      _searchedVisible = false;
+      _polylines.clear();
+      _routeInfo = null;
+      _markers.removeWhere((m) => m.markerId.value == 'searched');
+    });
   }
 
-  void _highlightNearest(LatLng p) {
-    int? minIdx;
-    double best = double.infinity;
-    for (int i = 0; i < _featured.length; i++) {
-      final d = _haversine(p, _featured[i].latLng);
-      if (d < best) {
-        best = d;
-        minIdx = i;
-      }
-    }
-    if (minIdx != null) {
-      _jumpToCard(minIdx);
-    }
+  void _clearSearchedMarker() {
+    setState(() {
+      _searchedVisible = false;
+      _markers.removeWhere((m) => m.markerId.value == 'searched');
+      _polylines.clear();
+      _routeInfo = null;
+    });
   }
 
-  void _jumpToCard(int index) {
-    _currentIndex = index;
-    _pageCtrl.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeOut,
-    );
-  }
-
-  double _haversine(LatLng a, LatLng b) {
-    const R = 6371000.0;
-    final dLat = _deg2rad(b.latitude - a.latitude);
-    final dLng = _deg2rad(b.longitude - a.longitude);
-    final la1 = _deg2rad(a.latitude);
-    final la2 = _deg2rad(b.latitude);
-    final h =
-        sin(dLat / 2) * sin(dLat / 2) +
-        cos(la1) * cos(la2) * sin(dLng / 2) * sin(dLng / 2);
-    return 2 * R * asin(sqrt(h));
-  }
-
-  double _deg2rad(double d) => d * pi / 180.0;
-
+  // ---------- Directions ----------
   Timer? _routeDebounce;
   Future<void> _showRoute({required bool wheelchair}) async {
     if (_selectedLocation == null) {
-      _toast('Select a building first.');
+      _toast('Choose a place first.');
       return;
     }
     if (_currentLocation == null) {
@@ -349,11 +294,7 @@ class _MapScreenState extends State<MapScreen> {
     _routeDebounce?.cancel();
     _routeDebounce = Timer(const Duration(milliseconds: 200), () async {
       try {
-        final route = await _getRouteWithStats(
-          _currentLocation!,
-          _selectedLocation!,
-          wheelchair: wheelchair,
-        );
+        final route = await _getRouteWithStats(_currentLocation!, _selectedLocation!, wheelchair: wheelchair);
         setState(() {
           _isWheelchairRoute = wheelchair;
           _routeInfo = route;
@@ -376,30 +317,25 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  Future<RouteInfo> _getRouteWithStats(
-    LatLng origin,
-    LatLng dest, {
-    required bool wheelchair,
-  }) async {
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  Future<RouteInfo> _getRouteWithStats(LatLng origin, LatLng dest, {required bool wheelchair}) async {
     final params = {
       'origin': '${origin.latitude},${origin.longitude}',
       'destination': '${dest.latitude},${dest.longitude}',
       'mode': 'walking',
       'key': apiKey,
     };
-    final url = Uri.https(
-      'maps.googleapis.com',
-      '/maps/api/directions/json',
-      params,
-    );
+    final url = Uri.https('maps.googleapis.com', '/maps/api/directions/json', params);
     final resp = await http.get(url);
     if (resp.statusCode != 200) throw HttpException('HTTP ${resp.statusCode}');
     final data = json.decode(resp.body) as Map<String, dynamic>;
     if (data['status'] != 'OK') {
       final em = (data['error_message'] as String?) ?? '';
-      throw Exception(
-        'Directions: ${data['status']} ${em.isNotEmpty ? '· $em' : ''}',
-      );
+      throw Exception('Directions: ${data['status']} ${em.isNotEmpty ? '· $em' : ''}');
     }
 
     final routes = (data['routes'] as List);
@@ -480,30 +416,25 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  // ---------- Search (Places) ----------
   Future<void> _searchPlace(String query) async {
     if (query.trim().isEmpty) return;
     try {
-      final url =
-          Uri.https('maps.googleapis.com', '/maps/api/place/textsearch/json', {
-            'query': query,
-            'location': '${campusCenter.latitude},${campusCenter.longitude}',
-            'radius': '2000',
-            'key': apiKey,
-          });
+      final url = Uri.https('maps.googleapis.com', '/maps/api/place/textsearch/json', {
+        'query': query,
+        'location': '${campusCenter.latitude},${campusCenter.longitude}',
+        'radius': '2000',
+        'key': apiKey,
+      });
       final resp = await http.get(url);
-      if (resp.statusCode != 200)
-        throw HttpException('HTTP ${resp.statusCode}');
+      if (resp.statusCode != 200) throw HttpException('HTTP ${resp.statusCode}');
       final data = json.decode(resp.body) as Map<String, dynamic>;
       if (data['status'] == 'OK' && (data['results'] as List).isNotEmpty) {
         final result = (data['results'] as List).first as Map<String, dynamic>;
         final loc = result['geometry']['location'] as Map<String, dynamic>;
         final name = (result['name'] as String?) ?? query;
-        final latLng = LatLng(
-          (loc['lat'] as num).toDouble(),
-          (loc['lng'] as num).toDouble(),
-        );
-        await _selectDestination(latLng, name);
-        _highlightNearest(latLng);
+        final latLng = LatLng((loc['lat'] as num).toDouble(), (loc['lng'] as num).toDouble());
+        await _setDestination(latLng, title: name, addMarker: true);
       } else {
         _toast('No results for "$query" (${data['status']})');
       }
@@ -512,43 +443,194 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  void _toast(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  // ---------- Admin editor ----------
+  void _openEditorForSearched() {
+    if (!widget.isAdmin || _selectedLocation == null) return;
+    _openPoiEditor(initialPos: _selectedLocation!);
   }
 
-  Future<void> _loadBusIcon() async {
+  Future<void> _openPoiEditor({LatLng? initialPos, CampusPoi? existing}) async {
+    final name = TextEditingController(text: existing?.name ?? '');
+    final imageUrl = TextEditingController(text: existing?.imageUrl ?? '');
+    final address = TextEditingController(text: existing?.address ?? '');
+    final phone = TextEditingController(text: existing?.phone ?? '');
+    final website = TextEditingController(text: existing?.website ?? '');
+    final closesAt = TextEditingController(text: existing?.closesAt ?? '');
+    final order = TextEditingController(text: (existing?.order ?? 0).toString());
+    final category = TextEditingController(text: existing?.category ?? '');
+    final lat = TextEditingController(
+        text: (existing?.lat ?? initialPos?.latitude ?? campusCenter.latitude).toStringAsFixed(6));
+    final lng = TextEditingController(
+        text: (existing?.lng ?? initialPos?.longitude ?? campusCenter.longitude).toStringAsFixed(6));
+    bool isOpenNow = existing?.isOpenNow ?? true;
+    bool active = existing?.active ?? true;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          left: 16, right: 16, top: 16,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(existing == null ? 'Publish carousel' : 'Edit carousel',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              TextField(controller: name, decoration: const InputDecoration(labelText: 'Name')),
+              Row(children: [
+                Expanded(child: TextField(controller: lat, decoration: const InputDecoration(labelText: 'Latitude'), keyboardType: TextInputType.number)),
+                const SizedBox(width: 12),
+                Expanded(child: TextField(controller: lng, decoration: const InputDecoration(labelText: 'Longitude'), keyboardType: TextInputType.number)),
+              ]),
+              TextField(controller: imageUrl, decoration: const InputDecoration(labelText: 'Image URL')),
+              TextField(controller: address, decoration: const InputDecoration(labelText: 'Address')),
+              TextField(controller: phone, decoration: const InputDecoration(labelText: 'Phone')),
+              TextField(controller: website, decoration: const InputDecoration(labelText: 'Website')),
+              TextField(controller: closesAt, decoration: const InputDecoration(labelText: 'Closes At (text)')),
+              TextField(controller: order, decoration: const InputDecoration(labelText: 'Order (int)')),
+              TextField(controller: category, decoration: const InputDecoration(labelText: 'Category (optional)')),
+              SwitchListTile(value: isOpenNow, onChanged: (v) => isOpenNow = v, title: const Text('Open Now')),
+              SwitchListTile(value: active, onChanged: (v) => active = v, title: const Text('Active')),
+
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  if (existing != null)
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.delete_outline),
+                      label: const Text('Delete'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Theme.of(context).colorScheme.error,
+                        side: BorderSide(color: Theme.of(context).colorScheme.error),
+                      ),
+                      onPressed: () async {
+                        final ok = await showDialog<bool>(
+                          context: context,
+                          builder: (_) => AlertDialog(
+                            title: const Text('Delete carousel?'),
+                            content: Text('Remove "${existing.name}" from the map?'),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                              FilledButton(
+                                style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+                                onPressed: () => Navigator.pop(context, true),
+                                child: const Text('Delete'),
+                              ),
+                            ],
+                          ),
+                        ) ?? false;
+
+                        if (!ok) return;
+                        try {
+                          await CampusPoiRepository.instance.deleteById(existing.id);
+                          if (mounted) _clearSearchedMarker();
+                          if (context.mounted) Navigator.pop(context);
+                          _toast('Deleted "${existing.name}"');
+                        } catch (e) {
+                          _toast('Delete failed: $e');
+                        }
+                      },
+                    ),
+                  const Spacer(),
+                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    child: const Text('Publish'),
+                    onPressed: () async {
+                      try {
+                        final dLat = double.parse(lat.text.trim());
+                        final dLng = double.parse(lng.text.trim());
+                        final ord = int.tryParse(order.text.trim()) ?? 0;
+
+                        final poi = CampusPoi(
+                          id: existing?.id ?? '',
+                          name: name.text.trim(),
+                          lat: dLat,
+                          lng: dLng,
+                          imageUrl: imageUrl.text.trim(),
+                          address: address.text.trim().isEmpty ? null : address.text.trim(),
+                          phone: phone.text.trim().isEmpty ? null : phone.text.trim(),
+                          website: website.text.trim().isEmpty ? null : website.text.trim(),
+                          hours: existing?.hours ?? const {},
+                          isOpenNow: isOpenNow,
+                          closesAt: closesAt.text.trim(),
+                          order: ord,
+                          active: active,
+                          category: category.text.trim().isEmpty ? null : category.text.trim(),
+                        );
+
+                        await CampusPoiRepository.instance.upsert(poi);
+
+                        if (mounted) _clearSearchedMarker();
+                        if (context.mounted) Navigator.pop(context);
+                        _toast('Published "${poi.name}"');
+                      } catch (e) {
+                        _toast('Publish failed: $e');
+                      }
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDeleteFromCard(CampusPoi poi) async {
+    if (!widget.isAdmin) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete carousel?'),
+        content: Text('Remove "${poi.name}" from the map?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    ) ?? false;
+    if (!ok) return;
     try {
-      _busIcon = await BitmapDescriptor.fromAssetImage(
-        const ImageConfiguration(size: Size(48, 48)),
-        'assets/images/bus_marker.png', // optional; fallback below
-      );
-    } catch (_) {
-      _busIcon = BitmapDescriptor.defaultMarkerWithHue(
-        BitmapDescriptor.hueOrange,
-      );
+      await CampusPoiRepository.instance.deleteById(poi.id);
+      if (mounted) _clearSearchedMarker();
+      _toast('Deleted "${poi.name}"');
+    } catch (e) {
+      _toast('Delete failed: $e');
     }
   }
 
+  // ---------- Live buses ----------
   void _startLiveBuses() {
-    if (_liveBusesActive) return;
-    _liveBusesActive = true;
+    if (_liveOn) return;
+    _liveOn = true;
     _didAutoFocusBuses = false;
-
-    _animateTo(campusCenter, zoom: 14);
-
+    _animateTo(campusCenter, zoom: 13);
     _busPollTimer?.cancel();
-    _busPollTimer = Timer.periodic(
-      const Duration(seconds: 10),
-      (_) => _fetchAndRenderSiri(),
-    );
+    _busPollTimer = Timer.periodic(const Duration(seconds: 2), (_) => _fetchAndRenderSiri());
     _fetchAndRenderSiri();
+    setState(() {});
   }
 
   void _stopLiveBuses() {
     _busPollTimer?.cancel();
     _busPollTimer = null;
-    _liveBusesActive = false;
+    _liveOn = false;
+    for (final t in _busAnimTimers.values) {
+      t.cancel();
+    }
+    _busAnimTimers.clear();
+    _busPrevPos.clear();
     setState(() {
       _markers.removeWhere((m) => m.markerId.value.startsWith('bus_'));
     });
@@ -561,33 +643,25 @@ class _MapScreenState extends State<MapScreen> {
         _toast('SIRI feed HTTP ${resp.statusCode}');
         return;
       }
-
       final doc = xml.XmlDocument.parse(resp.body);
+      final vehicleActivities = doc.findAllElements('VehicleActivity', namespace: '*');
 
-      final vehicleActivities = doc.descendants
-          .whereType<xml.XmlElement>()
-          .where((e) => e.name.local == 'VehicleActivity');
-
-      final newBusMarkers = <Marker>{};
+      final idsNow = <String>{};
       LatLng? firstPos;
+      int totalCount = 0;
 
       for (final va in vehicleActivities) {
-        final mvj = va.descendants.whereType<xml.XmlElement>().firstWhere(
-          (e) => e.name.local == 'MonitoredVehicleJourney',
-          orElse: () => xml.XmlElement(xml.XmlName('')),
-        );
-        if (mvj.name.local.isEmpty) continue;
+        final mvjIter = va.findAllElements('MonitoredVehicleJourney', namespace: '*');
+        if (mvjIter.isEmpty) continue;
+        final mvj = mvjIter.first;
 
-        String id =
-            _textOfFirst(mvj, 'VehicleRef') ??
-            _textOfFirst(va, 'VehicleRef') ??
-            'unknown';
+        final idRaw = _textOfFirst(mvj, 'VehicleRef') ?? _textOfFirst(va, 'VehicleRef');
+        if (idRaw == null || idRaw.trim().isEmpty) continue;
+        final id = idRaw.trim();
 
-        final loc = mvj.descendants.whereType<xml.XmlElement>().firstWhere(
-          (e) => e.name.local == 'VehicleLocation',
-          orElse: () => xml.XmlElement(xml.XmlName('')),
-        );
-        if (loc.name.local.isEmpty) continue;
+        final locIter = mvj.findAllElements('VehicleLocation', namespace: '*');
+        if (locIter.isEmpty) continue;
+        final loc = locIter.first;
 
         final latStr = _textOfFirst(loc, 'Latitude');
         final lngStr = _textOfFirst(loc, 'Longitude');
@@ -597,99 +671,220 @@ class _MapScreenState extends State<MapScreen> {
         final lng = double.tryParse(lngStr);
         if (lat == null || lng == null) continue;
 
-        final bearingStr = _textOfFirst(mvj, 'Bearing');
-        final bearing = double.tryParse(bearingStr ?? '0') ?? 0.0;
+        final next = LatLng(lat, lng);
+        totalCount++;
+        final markerId = 'bus_$id';
+        idsNow.add(markerId);
+        firstPos ??= next;
 
-        final pos = LatLng(lat, lng);
-        firstPos ??= pos;
-
-        final marker = Marker(
-          markerId: MarkerId('bus_$id'),
-          position: pos,
-          rotation: bearing,
-          flat: true,
-          anchor: const Offset(0.5, 0.5),
-          icon:
-              _busIcon ??
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
-          infoWindow: const InfoWindow(title: 'Centrebus (live)'),
+        final prev = _busPrevPos[id];
+        _smoothMove(
+          id: id,
+          markerId: markerId,
+          from: prev ?? next,
+          to: next,
+          icon: _emojiIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
         );
-
-        newBusMarkers.add(marker);
+        _busPrevPos[id] = next;
       }
 
       if (!mounted) return;
 
-      if (newBusMarkers.isEmpty) {
-        _toast('No live Centrebus vehicles found right now. Try again soon.');
-      } else {
-        setState(() {
-          _markers.removeWhere((m) => m.markerId.value.startsWith('bus_'));
-          _markers.addAll(newBusMarkers);
-        });
+      setState(() {
+        _markers.removeWhere((m) => m.markerId.value.startsWith('bus_') && !idsNow.contains(m.markerId.value));
+      });
 
-        // Auto-focus to where the buses actually are (only once per session toggle)
-        if (!_didAutoFocusBuses && firstPos != null) {
-          final c = await _controller.future;
-          await c.animateCamera(CameraUpdate.newLatLngZoom(firstPos!, 13));
-          _didAutoFocusBuses = true;
-        }
+      if (!_didAutoFocusBuses && firstPos != null) {
+        final c = await _controller.future;
+        await c.animateCamera(CameraUpdate.newLatLngZoom(firstPos!, 12));
+        _didAutoFocusBuses = true;
+      }
+
+      if (totalCount == 0) {
+        _toast('No vehicles in the live feed right now.');
       }
     } catch (e) {
-      debugPrint('SIRI fetch error: $e');
       _toast('Could not parse live bus feed.');
     }
   }
 
-  String? _textOfFirst(xml.XmlElement parent, String localName) {
-    final n = parent.descendants.whereType<xml.XmlElement>().firstWhere(
-      (e) => e.name.local == localName,
-      orElse: () => xml.XmlElement(xml.XmlName('')),
-    );
-    if (n.name.local.isEmpty) return null;
-    return n.text.trim().isEmpty ? null : n.text.trim();
+  double _distanceMeters(LatLng a, LatLng b) {
+    const R = 6371000.0;
+    final dLat = (b.latitude - a.latitude) * pi / 180.0;
+    final dLng = (b.longitude - a.longitude) * pi / 180.0;
+    final la1 = a.latitude * pi / 180.0;
+    final la2 = b.latitude * pi / 180.0;
+
+    final h = sin(dLat / 2) * sin(dLat / 2) +
+        cos(la1) * cos(la2) * sin(dLng / 2) * sin(dLng / 2);
+
+    return 2 * R * asin(sqrt(h));
   }
 
+  void _smoothMove({
+    required String id,
+    required String markerId,
+    required LatLng from,
+    required LatLng to,
+    required BitmapDescriptor icon,
+    int durationMs = 1800,
+    int stepMs = 60,
+  }) {
+    _busAnimTimers[id]?.cancel();
+    final dist = _distanceMeters(from, to);
+    if (dist < 2 || dist > 2000) {
+      _putEmojiMarker(markerId, to, icon);
+      return;
+    }
+    final totalSteps = (durationMs / stepMs).ceil();
+    int step = 0;
+    _busAnimTimers[id] = Timer.periodic(Duration(milliseconds: stepMs), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      step++;
+      final t = (step / totalSteps).clamp(0.0, 1.0);
+      final lat = from.latitude + (to.latitude - from.latitude) * t;
+      final lng = from.longitude + (to.longitude - from.longitude) * t;
+      final pos = LatLng(lat, lng);
+      _putEmojiMarker(markerId, pos, icon);
+      if (step >= totalSteps) timer.cancel();
+    });
+  }
+
+  void _putEmojiMarker(String markerId, LatLng pos, BitmapDescriptor icon) {
+    setState(() {
+      _markers.removeWhere((m) => m.markerId.value == markerId);
+      _markers.add(Marker(
+        markerId: MarkerId(markerId),
+        position: pos,
+        flat: true,
+        anchor: const Offset(0.5, 0.5),
+        zIndex: 1000.0,
+        icon: icon,
+      ));
+    });
+  }
+
+  Future<void> _loadEmojiIcon() async {
+    try {
+      _emojiIcon = await _makeEmojiMarker('🚌', fontSize: 56);
+    } catch (_) {
+      _emojiIcon = null;
+    }
+  }
+
+  Future<BitmapDescriptor> _makeEmojiMarker(String emoji, {double fontSize = 48}) async {
+    final tp = TextPainter(
+      text: TextSpan(text: emoji, style: TextStyle(fontSize: fontSize)),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final double w = tp.width + 12;
+    final double h = tp.height + 12;
+
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder);
+    final bg = Paint()..color = Colors.white.withOpacity(0.92);
+    final rrect = RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, w, h), const Radius.circular(14));
+    canvas.drawRRect(rrect, bg);
+    tp.paint(canvas, Offset((w - tp.width) / 2, (h - tp.height) / 2));
+    final img = await recorder.endRecording().toImage(w.ceil(), h.ceil());
+    final bytes = (await img.toByteData(format: ui.ImageByteFormat.png))!.buffer.asUint8List();
+    return BitmapDescriptor.fromBytes(bytes);
+  }
+
+  String? _textOfFirst(xml.XmlElement parent, String localName) {
+    final n = parent.findAllElements(localName, namespace: '*');
+    if (n.isEmpty) return null;
+    final txt = n.first.text.trim();
+    return txt.isEmpty ? null : txt;
+  }
+
+  // ---- Map style applier
+  Future<void> _applyMapStyleForTheme() async {
+    if (!_controller.isCompleted) return;
+    final brightness = Theme.of(context).brightness;
+    if (_lastBrightness == brightness) return;
+    final c = await _controller.future;
+    await c.setMapStyle(brightness == Brightness.dark ? _mapStyleDark : null);
+    _lastBrightness = brightness;
+  }
+
+  // ---------- UI ----------
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
+    final markersToShow =
+    _searchedVisible ? _markers : _markers.where((m) => m.markerId.value != 'searched').toSet();
 
     return Scaffold(
       body: Stack(
         children: [
           GoogleMap(
-            initialCameraPosition: const CameraPosition(
-              target: campusCenter,
-              zoom: 16,
-            ),
+            initialCameraPosition: const CameraPosition(target: campusCenter, zoom: 16),
             myLocationEnabled: true,
             myLocationButtonEnabled: false,
             zoomControlsEnabled: false,
             mapToolbarEnabled: false,
-            markers: _markers,
+            markers: markersToShow,
             polylines: _polylines,
-            onMapCreated: (controller) {
+            onMapCreated: (controller) async {
               if (!_controller.isCompleted) {
                 _controller.complete(controller);
               }
+              await _applyMapStyleForTheme();
             },
           ),
 
+          // Admin-only search bar
+          if (widget.isAdmin)
+            Positioned(
+              left: 16,
+              right: 16,
+              top: MediaQuery.of(context).padding.top + 12,
+              child: Material(
+                elevation: 3,
+                borderRadius: BorderRadius.circular(12),
+                child: TextField(
+                  controller: _adminSearchCtrl,
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (q) => _searchPlace(q),
+                  decoration: InputDecoration(
+                    hintText: 'Search a building...',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _adminSearchCtrl.clear();
+                        _clearNavigation(); // clears marker + route
+                      },
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    filled: true,
+                    fillColor: theme.cardColor,
+                    contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                ),
+              ),
+            ),
+
+          // Distance/time chip
           if (_routeInfo != null)
             Positioned(
               right: 16,
-              bottom: 270,
+              bottom: 320,
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 8,
-                  horizontal: 10,
-                ),
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
                 decoration: BoxDecoration(
                   color: theme.cardColor,
                   borderRadius: BorderRadius.circular(10),
-                  boxShadow: const [
-                    BoxShadow(blurRadius: 6, color: Colors.black26),
-                  ],
+                  boxShadow: const [BoxShadow(blurRadius: 6, color: Colors.black26)],
                   border: Border.all(
                     color: _isWheelchairRoute
                         ? theme.colorScheme.secondary
@@ -718,10 +913,7 @@ class _MapScreenState extends State<MapScreen> {
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
-                          _isWheelchairRoute ? Icons.accessible : Icons.timer,
-                          size: 18,
-                        ),
+                        Icon(_isWheelchairRoute ? Icons.accessible : Icons.timer, size: 18),
                         const SizedBox(width: 6),
                         Text(
                           _routeInfo!.durationText.isNotEmpty
@@ -736,62 +928,40 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
 
-          SafeArea(
-            bottom: true,
-            minimum: const EdgeInsets.only(bottom: 190),
-            child: Align(
-              alignment: Alignment.bottomCenter,
+          // Carousel (both user & admin)
+          if (_pois.isNotEmpty)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 90,
               child: SizedBox(
-                height: 220,
-                width: double.infinity,
+                height: 210,
                 child: PageView.builder(
                   controller: _pageCtrl,
+                  itemCount: _pois.length,
                   onPageChanged: (i) {
                     _currentIndex = i;
+                    if (i >= 0 && i < _pois.length) {
+                      final b = _pois[i];
+                      _selectedLocation = b.latLng; // for routing
+                    }
                   },
-                  itemCount: _featured.length,
-                  itemBuilder: (context, i) {
-                    final b = _featured[i];
-                    final selected = i == _currentIndex;
+                  itemBuilder: (_, i) {
+                    final b = _pois[i];
                     return Padding(
-                      padding: EdgeInsets.only(
-                        left: i == 0 ? 16 : 8,
-                        right: i == _featured.length - 1 ? 16 : 8,
-                      ),
-                      child: AnimatedScale(
-                        duration: const Duration(milliseconds: 200),
-                        scale: selected ? 1.0 : 0.96,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: selected
-                                  ? theme.colorScheme.primary
-                                  : Colors.transparent,
-                              width: 1.2,
-                            ),
-                          ),
-                          child: FlippableBuildingCard(
-                            building: b,
-                            onCenter: () async {
-                              _currentIndex = i;
-                              await _selectDestination(b.latLng, b.name);
-                              _pageCtrl.animateToPage(
-                                i,
-                                duration: const Duration(milliseconds: 250),
-                                curve: Curves.easeOut,
-                              );
-                            },
-                          ),
-                        ),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: GestureDetector(
+                        onTap: () => _setDestination(b.latLng, title: b.name, addMarker: true),
+                        onLongPress: widget.isAdmin ? () => _confirmDeleteFromCard(b) : null,
+                        child: _PoiCard(poi: b),
                       ),
                     );
                   },
                 ),
               ),
             ),
-          ),
 
+          // Bottom actions (added CLEAR button)
           Positioned(
             left: 0,
             right: 0,
@@ -799,55 +969,95 @@ class _MapScreenState extends State<MapScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
+                _RoundIconButton(icon: Icons.directions_walk, onPressed: () => _showRoute(wheelchair: false)),
+                _RoundIconButton(icon: Icons.accessible, onPressed: () => _showRoute(wheelchair: true)),
+                _RoundIconButton(icon: Icons.my_location, onPressed: _animateToCurrent),
                 _RoundIconButton(
-                  icon: Icons.directions_walk,
-                  onPressed: () => _showRoute(wheelchair: false),
+                  icon: Icons.directions_bus,
+                  onPressed: () {
+                    if (_liveOn) {
+                      _stopLiveBuses();
+                      _toast('Live buses off');
+                    } else {
+                      _startLiveBuses();
+                      _toast('Live buses on');
+                    }
+                  },
                 ),
-                _RoundIconButton(
-                  icon: Icons.accessible,
-                  onPressed: () => _showRoute(wheelchair: true),
-                ),
-                _RoundIconButton(
-                  icon: Icons.my_location,
-                  onPressed: _animateToCurrent,
+                _RoundIconButton( // NEW: clears red pin + route
+                  icon: Icons.clear,
+                  onPressed: _clearNavigation,
                 ),
               ],
             ),
           ),
         ],
       ),
-
-      floatingActionButton: Padding(
-        padding: const EdgeInsets.only(bottom: 88.0),
-        child: FloatingActionButton.extended(
-          onPressed: () {
-            if (_liveBusesActive) {
-              _stopLiveBuses();
-              _toast('Live buses off');
-            } else {
-              _startLiveBuses();
-              _toast('Live buses on');
-            }
-          },
-          backgroundColor: theme.colorScheme.primary,
-          foregroundColor: theme.colorScheme.onPrimary,
-          icon: const Icon(Icons.directions_bus),
-          label: Text(_liveBusesActive ? 'Live off' : 'Live buses'),
-        ),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 }
 
+// --- Simple card for carousel ---
+class _PoiCard extends StatelessWidget {
+  final CampusPoi poi;
+  const _PoiCard({required this.poi});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final statusColor = poi.isOpenNow ? theme.colorScheme.primary : theme.colorScheme.error;
+
+    return Container(
+      width: 280,
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: const [BoxShadow(blurRadius: 10, color: Colors.black26)],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+            child: Image.network(
+              poi.imageUrl,
+              height: 130,
+              width: double.infinity,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) =>
+                  Container(height: 130, color: Colors.grey.shade300),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(poi.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Text(
+                  poi.isOpenNow ? "Open · Closes ${poi.closesAt}" : "Closed · ${poi.closesAt}",
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13, color: statusColor),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- Circular button ---
 class _RoundIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onPressed;
-  const _RoundIconButton({
-    required this.icon,
-    required this.onPressed,
-    super.key,
-  });
+  const _RoundIconButton({required this.icon, required this.onPressed, super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -866,216 +1076,7 @@ class _RoundIconButton extends StatelessWidget {
   }
 }
 
-class _CampusBuilding {
-  final String id;
-  final String name;
-  final LatLng latLng;
-  final String imageUrl;
-  final bool isOpenNow;
-  final String closesAt;
-  final String? address;
-  final String? phone;
-  final String? website;
-  final Map<String, String> hours;
-
-  const _CampusBuilding({
-    required this.id,
-    required this.name,
-    required this.latLng,
-    required this.imageUrl,
-    this.isOpenNow = true,
-    this.closesAt = '',
-    this.address,
-    this.phone,
-    this.website,
-    this.hours = const {},
-  });
-}
-
-class FlippableBuildingCard extends StatefulWidget {
-  final _CampusBuilding building;
-  final VoidCallback? onCenter;
-
-  const FlippableBuildingCard({
-    required this.building,
-    this.onCenter,
-    super.key,
-  });
-
-  @override
-  State<FlippableBuildingCard> createState() => _FlippableBuildingCardState();
-}
-
-class _FlippableBuildingCardState extends State<FlippableBuildingCard> {
-  bool _showBack = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        setState(() => _showBack = !_showBack);
-        widget.onCenter?.call();
-      },
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 600),
-        transitionBuilder: (Widget child, Animation<double> animation) {
-          final rotate = Tween(begin: pi, end: 0.0).animate(animation);
-          return AnimatedBuilder(
-            animation: rotate,
-            child: child,
-            builder: (context, child) {
-              final isUnder = (child!.key != ValueKey(_showBack));
-              var tilt = (animation.value - 0.5).abs() - 0.5;
-              tilt *= isUnder ? -0.003 : 0.003;
-              return Transform(
-                transform: Matrix4.rotationY(rotate.value)
-                  ..setEntry(3, 0, tilt),
-                alignment: Alignment.center,
-                child: child,
-              );
-            },
-          );
-        },
-        child: _showBack
-            ? _BackCard(building: widget.building, key: const ValueKey(true))
-            : _FrontCard(building: widget.building, key: const ValueKey(false)),
-      ),
-    );
-  }
-}
-
-class _FrontCard extends StatelessWidget {
-  final _CampusBuilding building;
-  const _FrontCard({required this.building, super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final statusColor = building.isOpenNow
-        ? theme.colorScheme.primary
-        : theme.colorScheme.error;
-
-    return Container(
-      width: 280,
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: const [BoxShadow(blurRadius: 10, color: Colors.black26)],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-            child: Image.network(
-              building.imageUrl,
-              height: 130,
-              width: double.infinity,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) =>
-                  Container(height: 130, color: Colors.grey.shade300),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  building.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  building.isOpenNow
-                      ? "Open · Closes ${building.closesAt}"
-                      : "Closed · ${building.closesAt}",
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 13, color: statusColor),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BackCard extends StatelessWidget {
-  final _CampusBuilding building;
-  const _BackCard({required this.building, super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final dim = TextStyle(color: Colors.grey.shade700);
-
-    return Container(
-      width: 280,
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: const [BoxShadow(blurRadius: 10, color: Colors.black26)],
-      ),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            building.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 6),
-          if (building.address != null) Text(building.address!),
-          if (building.phone != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text("📞 ${building.phone!}", style: dim),
-            ),
-          if (building.website != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text("🌐 ${building.website!}", style: dim),
-            ),
-          const SizedBox(height: 10),
-          if (building.hours.isNotEmpty) ...[
-            const Text(
-              "Opening Hours:",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 6),
-            Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: building.hours.entries
-                      .map(
-                        (e) => Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 1.5),
-                          child: Text("${e.key}: ${e.value}"),
-                        ),
-                      )
-                      .toList(),
-                ),
-              ),
-            ),
-          ] else
-            const Spacer(),
-        ],
-      ),
-    );
-  }
-}
-
+// --- Route info model ---
 class RouteInfo {
   final List<LatLng> points;
   final String distanceText;
@@ -1091,17 +1092,14 @@ class RouteInfo {
   });
 }
 
-String _formatDistance(int meters) {
-  if (meters < 1000) return '$meters m';
-  return '${(meters / 1000).toStringAsFixed(1)} km';
-}
-
+double _deg2rad(double d) => d * pi / 180.0;
+String _formatDistance(int meters) =>
+    meters < 1000 ? '$meters m' : '${(meters / 1000).toStringAsFixed(1)} km';
 String _formatDuration(int seconds) {
   if (seconds <= 0) return '';
   final m = (seconds / 60).round();
   if (m < 60) return '$m min';
   final h = m ~/ 60;
   final rm = m % 60;
-  if (rm == 0) return '$h hr';
-  return '$h hr $rm min';
+  return rm == 0 ? '$h hr' : '$h hr $rm min';
 }

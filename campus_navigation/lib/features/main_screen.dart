@@ -1,3 +1,4 @@
+// lib/main_screen.dart
 import 'package:flutter/material.dart';
 import 'home_screen.dart';
 import 'map_screen.dart';
@@ -19,9 +20,7 @@ class _MainScreenState extends State<MainScreen> {
   double? _searchLng;
 
   void _onTabTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+    setState(() => _selectedIndex = index);
   }
 
   void _handleSearch(String query, double? lat, double? lng) {
@@ -29,13 +28,15 @@ class _MainScreenState extends State<MainScreen> {
       _searchQuery = query;
       _searchLat = lat;
       _searchLng = lng;
-      _selectedIndex = 1;
+      _selectedIndex = 1; // jump to Map tab
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final List<Widget> screens = [
+    final theme = Theme.of(context);
+
+    final screens = <Widget>[
       HomeScreen(
         userEmail: widget.userEmail,
         onNavigateToMap: () => _onTabTapped(1),
@@ -51,18 +52,38 @@ class _MainScreenState extends State<MainScreen> {
     ];
 
     return Scaffold(
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: screens,
+      backgroundColor: theme.scaffoldBackgroundColor,
+      body: SafeArea(
+        child: IndexedStack(
+          index: _selectedIndex,
+          children: screens,
+        ),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: _onTabTapped,
-        selectedItemColor: Colors.deepPurple,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Map'),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
+      // Material 3 bottom nav, styled from theme
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: _onTabTapped,
+        height: 64,
+        elevation: 2,
+        backgroundColor: theme.colorScheme.surface,
+        indicatorColor: theme.colorScheme.primaryContainer,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.map_outlined),
+            selectedIcon: Icon(Icons.map),
+            label: 'Map',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
         ],
       ),
     );

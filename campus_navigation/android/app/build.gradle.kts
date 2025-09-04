@@ -5,16 +5,16 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-
 android {
     namespace = "com.example.dissertation"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = "27.0.12077973"
 
-    // Align with JDK 17 (required by AGP 8.x)
+    // ✅ Keep Java 17, but enable desugaring
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true   // ← add this
     }
     kotlinOptions {
         jvmTarget = "17"
@@ -22,7 +22,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.dissertation"
-        minSdk = 23
+        minSdk = 23     // ≥ 21 is fine
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -30,8 +30,6 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Using debug signing so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -39,4 +37,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+// ✅ Add this dependencies block if you don't have one yet
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }

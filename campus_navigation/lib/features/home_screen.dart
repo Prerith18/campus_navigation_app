@@ -6,8 +6,18 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:campus_navigation/services/weather_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+
+// 🔽 Firebase for unread count & favourites
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
 import 'notification_screen.dart';
-import 'timetable_screen.dart';
+import 'user_timetable_screen.dart';
+
+// 🔽 Timetable imports
+import 'package:intl/intl.dart';
+import 'package:campus_navigation/services/timetable_repository.dart';
+import 'package:campus_navigation/models/timetable_session.dart';
 
 class HomeScreen extends StatefulWidget {
   final String userEmail;
@@ -31,7 +41,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> _suggestions = [];
 
-  final String apiKey = "AIzaSyAsHYoxe5t5A8Zm8tPogYOfWFjAtyDionw"; // 🔐 never commit raw keys
+  // 🔐 Consider moving this to a secure place / remote config for production
+  final String apiKey = "AIzaSyAsHYoxe5t5A8Zm8tPogYOfWFjAtyDionw";
 
   late stt.SpeechToText _speech;
   bool _isListening = false;
@@ -53,11 +64,13 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       await _checkLocationPermission();
       final weather = await WeatherService().getCurrentWeatherByLocation();
+      if (!mounted) return;
       setState(() {
         _weather = weather;
         _weatherError = false;
       });
-    } catch (e) {
+    } catch (_) {
+      if (!mounted) return;
       setState(() {
         _weather = 'Unable to fetch weather';
         _weatherError = true;
@@ -67,14 +80,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _checkLocationPermission() async {
     LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-      permission = await Geolocator.requestPermission();
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      await Geolocator.requestPermission();
     }
   }
 
   Future<void> _toggleListening() async {
     if (!_isListening) {
-      bool available = await _speech.initialize(
+      final available = await _speech.initialize(
         onStatus: (status) => debugPrint('Speech status: $status'),
         onError: (error) => debugPrint('Speech error: $error'),
       );
@@ -83,15 +97,16 @@ class _HomeScreenState extends State<HomeScreen> {
         _speech.listen(
           onResult: (result) async {
             if (result.finalResult) {
-              String spokenText = result.recognizedWords;
-              _searchController.text = spokenText; // fill search bar
-              await _getSuggestions(spokenText);   // get suggestions
-              await _resolveAndNavigate();          // 🔍 pick first + go
+              final spokenText = result.recognizedWords;
+              _searchController.text = spokenText;
+              await _getSuggestions(spokenText);
+              await _resolveAndNavigate();
               _stopListening();
             }
           },
         );
       } else {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Speech recognition not available')),
         );
@@ -113,7 +128,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _resolveAndNavigate() async {
-    // Always close keyboard & suggestions before navigation
+    // Close keyboard & suggestions before navigation
     FocusScope.of(context).unfocus();
     await SystemChannels.textInput.invokeMethod('TextInput.hide');
 
@@ -190,21 +205,26 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _launchUniversitySite() async {
     const url = 'https://le.ac.uk/';
-    if (await canLaunchUrl(Uri.parse(url))) {
-      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final String username = widget.userEmail.split('@').first;
+    final emailFirst = widget.userEmail.split('@').first;
+    final username = emailFirst.isEmpty
+        ? 'there'
+        : '${emailFirst[0].toUpperCase()}${emailFirst.substring(1)}';
     final theme = Theme.of(context);
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        backgroundColor: theme.appBarTheme.backgroundColor ?? theme.scaffoldBackgroundColor,
+        backgroundColor:
+        theme.appBarTheme.backgroundColor ?? theme.scaffoldBackgroundColor,
         elevation: 0,
         title: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -214,48 +234,24 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Image.asset(
                 'assets/images/leicester_university_01.png',
                 height: 150,
-                errorBuilder: (context, error, stackTrace) {
-                  return Text(
-                    "University",
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: theme.textTheme.bodyMedium!.color,
-                    ),
-                  );
-                },
+                errorBuilder: (_, __, ___) => Text(
+                  "University",
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: theme.textTheme.bodyMedium!.color,
+                  ),
+                ),
               ),
             ),
-            InkWell(
+            _NotificationBell(
               onTap: () {
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const NotificationsScreen()),
                 );
               },
-              child: Stack(
-                children: [
-                  Icon(Icons.notifications_none,
-                      size: 30, color: theme.iconTheme.color),
-                  Positioned(
-                    right: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: const BoxDecoration(
-                        color: Colors.red,
-                        shape: BoxShape.circle,
-                      ),
-                      constraints: const BoxConstraints(minWidth: 12, minHeight: 12),
-                      child: const Text(
-                        '1',
-                        style: TextStyle(color: Colors.white, fontSize: 8),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  )
-                ],
-              ),
-            )
+            ),
           ],
         ),
       ),
@@ -264,10 +260,12 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           Text(
             'Hi $username!',
-            style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            style:
+            theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
 
+          // ---- Search bar + suggestions ----
           Column(
             children: [
               TextField(
@@ -288,7 +286,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   suffixIcon: IconButton(
                     icon: Icon(Icons.search, color: theme.iconTheme.color),
-                    onPressed: _onSearchPressed, // 🔍 make search button functional
+                    onPressed: _onSearchPressed,
                   ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(30),
@@ -302,26 +300,31 @@ class _HomeScreenState extends State<HomeScreen> {
                   decoration: BoxDecoration(
                     color: theme.cardColor,
                     borderRadius: BorderRadius.circular(8),
-                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black26, blurRadius: 4)
+                    ],
                   ),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: _suggestions.length,
-                    itemBuilder: (context, index) {
-                      final suggestion = _suggestions[index];
-                      return ListTile(
-                        title: Text(suggestion['description']),
-                        onTap: () async {
-                          // Hide keyboard, clear suggestions, then navigate
-                          FocusScope.of(context).unfocus();
-                          await SystemChannels.textInput.invokeMethod('TextInput.hide');
-                          await _getPlaceDetails(
-                            suggestion['place_id'],
-                            suggestion['description'],
-                          );
-                        },
-                      );
-                    },
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 240),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: _suggestions.length,
+                      itemBuilder: (context, index) {
+                        final suggestion = _suggestions[index];
+                        return ListTile(
+                          title: Text(suggestion['description']),
+                          onTap: () async {
+                            FocusScope.of(context).unfocus();
+                            await SystemChannels.textInput
+                                .invokeMethod('TextInput.hide');
+                            await _getPlaceDetails(
+                              suggestion['place_id'],
+                              suggestion['description'],
+                            );
+                          },
+                        );
+                      },
+                    ),
                   ),
                 ),
             ],
@@ -329,6 +332,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
           const SizedBox(height: 24),
 
+          // ---- Quick nav buttons ----
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
@@ -338,7 +342,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 widget.onNavigateToMap();
               }),
               _buildNavButton(context, Icons.schedule, 'Timetable', () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const TimetableScreen()));
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const TimetableScreen()),
+                );
               }),
               _buildNavButton(context, Icons.directions_bus, 'Buses', () async {
                 FocusScope.of(context).unfocus();
@@ -350,7 +357,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
           const SizedBox(height: 24),
 
-          Text('Weather', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+          // ---- Weather ----
+          Text('Weather',
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Card(
             elevation: 2,
@@ -379,28 +389,77 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
 
           const SizedBox(height: 24),
-          Text("Today's Schedule", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+
+          // ---- Today’s schedule from published bundle (live) ----
+          Text("Today's Schedule",
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          _buildScheduleCard(context, 'Dissertation Class', 'KE LT2', '11:00 AM'),
-          _buildScheduleCard(context, 'Generative Dev Lab', 'DW L011', '2:00 PM'),
+          _TodayScheduleCard(
+            onGoToClass: (session) {
+              widget.onSearch(session.locationName, session.lat, session.lng);
+              widget.onNavigateToMap();
+            },
+          ),
 
           const SizedBox(height: 24),
-          Text('Your Favorite Places', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+
+          // ---- Favorites from Firestore savedRoutes (up to 3) ----
+          Text('Your Favorite Places',
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _buildFavPlace(context, Icons.local_library, 'Library'),
-              _buildFavPlace(context, Icons.local_cafe, 'Cafe'),
-              _buildFavPlace(context, Icons.fitness_center, 'Gym'),
-            ],
-          ),
+
+          Builder(builder: (context) {
+            final uid = FirebaseAuth.instance.currentUser?.uid;
+            if (uid == null) {
+              return Text('Sign in to use favourites.',
+                  style: theme.textTheme.bodySmall);
+            }
+            final stream = FirebaseFirestore.instance
+                .collection('users')
+                .doc(uid)
+                .collection('savedRoutes')
+                .orderBy('order')
+                .limit(3)
+                .snapshots();
+
+            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: stream,
+              builder: (context, snap) {
+                final docs = snap.data?.docs ?? [];
+                if (docs.isEmpty) {
+                  return Text('Set up favourites in Profile → Saved Routes.',
+                      style: theme.textTheme.bodySmall);
+                }
+
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    for (final d in docs)
+                      _FavChip(
+                        label:
+                        (d['label'] ?? d['placeName'] ?? 'Favourite') as String,
+                        onTap: () {
+                          final name = (d['placeName'] ?? d['label']) as String;
+                          final lat = (d['lat'] as num?)?.toDouble();
+                          final lng = (d['lng'] as num?)?.toDouble();
+                          widget.onSearch(name, lat, lng);
+                          widget.onNavigateToMap();
+                        },
+                      ),
+                  ],
+                );
+              },
+            );
+          }),
         ],
       ),
     );
   }
 
-  Widget _buildNavButton(BuildContext context, IconData icon, String label, VoidCallback onPressed) {
+  Widget _buildNavButton(
+      BuildContext context, IconData icon, String label, VoidCallback onPressed) {
     final theme = Theme.of(context);
     return InkWell(
       onTap: onPressed,
@@ -412,55 +471,172 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Icon(icon, color: theme.colorScheme.onPrimary, size: 28),
           ),
           const SizedBox(height: 8),
-          Text(label, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+          Text(label,
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(fontWeight: FontWeight.w600)),
         ],
       ),
     );
   }
+}
 
-  Widget _buildScheduleCard(BuildContext context, String title, String location, String time) {
-    final theme = Theme.of(context);
+class _NotificationBell extends StatelessWidget {
+  final VoidCallback onTap;
+  const _NotificationBell({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+
+    if (uid == null) {
+      return IconButton(
+        icon: const Icon(Icons.notifications_none),
+        onPressed: onTap,
+      );
+    }
+
+    final stream = FirebaseFirestore.instance
+        .collection('userNotifications')
+        .doc(uid)
+        .collection('items')
+        .where('read', isEqualTo: false)
+        .snapshots();
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: stream,
+      builder: (context, snap) {
+        final unread = snap.data?.size ?? 0;
+        return InkWell(
+          onTap: onTap,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Icon(
+                Icons.notifications_none,
+                size: 30,
+                color: Theme.of(context).iconTheme.color,
+              ),
+              if (unread > 0)
+                Positioned(
+                  right: -2,
+                  top: -2,
+                  child: Container(
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(10), // pill
+                    ),
+                    constraints:
+                    const BoxConstraints(minWidth: 16, minHeight: 16),
+                    child: Text(
+                      unread > 99 ? '99+' : '$unread',
+                      style: const TextStyle(color: Colors.white, fontSize: 10),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Card that streams today's sessions from the published timetable and
+/// renders "Go to class" buttons for each.
+class _TodayScheduleCard extends StatelessWidget {
+  final void Function(TimetableSession session) onGoToClass;
+  const _TodayScheduleCard({required this.onGoToClass});
+
+  @override
+  Widget build(BuildContext context) {
+    final repo = TimetableRepository.instance;
+    final localNow = DateTime.now();
+    final df = DateFormat('HH:mm');
+
     return Card(
-      margin: const EdgeInsets.symmetric(vertical: 8),
       elevation: 2,
-      color: theme.cardColor,
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: theme.colorScheme.primary,
-          child: Icon(Icons.schedule, color: theme.colorScheme.onPrimary),
-        ),
-        title: Text(title, style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
-        subtitle: Row(
-          children: [
-            Icon(Icons.location_on, size: 16, color: theme.colorScheme.primary),
-            const SizedBox(width: 4),
-            Text(location),
-            const SizedBox(width: 16),
-            Text(time),
-          ],
-        ),
-        onTap: () {
-          Navigator.push(context, MaterialPageRoute(builder: (_) => const TimetableScreen()));
+      child: StreamBuilder<List<TimetableSession>>(
+        stream: repo.streamTodayFromPublished(localNow: localNow),
+        builder: (context, snap) {
+          if (snap.hasError) {
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text('Error: ${snap.error}'),
+            );
+          }
+          final today = snap.data ?? [];
+
+          if (today.isEmpty) {
+            return const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('No classes today.'),
+            );
+          }
+
+          return Column(
+            children: [
+              for (final s in today) ...[
+                ListTile(
+                  leading: const Icon(Icons.event_available),
+                  title: Text(s.title),
+                  subtitle: Text(
+                    '${df.format(s.startTime.toDate().toLocal())}'
+                        '–${df.format(s.endTime.toDate().toLocal())}'
+                        ' • ${s.locationName}${s.room != null ? ' • ${s.room}' : ''}',
+                  ),
+                  trailing: TextButton(
+                    onPressed: () => onGoToClass(s),
+                    child: const Text('Go to class'),
+                  ),
+                ),
+                const Divider(height: 1),
+              ],
+            ],
+          );
         },
       ),
     );
   }
+}
 
-  Widget _buildFavPlace(BuildContext context, IconData icon, String label) {
+/// Small chip used for each favourite.
+class _FavChip extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  const _FavChip({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Column(
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            color: theme.colorScheme.primary.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(30),
+    return InkWell(
+      onTap: onTap,
+      child: Column(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(30),
+            ),
+            padding: const EdgeInsets.all(14),
+            child: Icon(Icons.star, color: theme.colorScheme.primary, size: 28),
           ),
-          padding: const EdgeInsets.all(14),
-          child: Icon(icon, color: theme.colorScheme.primary, size: 28),
-        ),
-        const SizedBox(height: 8),
-        Text(label, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500)),
-      ],
+          const SizedBox(height: 8),
+          SizedBox(
+            width: 100,
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(fontWeight: FontWeight.w500),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
