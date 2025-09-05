@@ -1,7 +1,7 @@
-// lib/features/students_screen.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+/// Admin view of users with search, filter, and inline enable/disable.
 class StudentsScreen extends StatefulWidget {
   const StudentsScreen({super.key});
 
@@ -11,7 +11,7 @@ class StudentsScreen extends StatefulWidget {
 
 class _StudentsScreenState extends State<StudentsScreen> {
   final _searchCtrl = TextEditingController();
-  String _statusFilter = 'all'; // all | active | disabled
+  String _statusFilter = 'all';
 
   @override
   void dispose() {
@@ -19,19 +19,18 @@ class _StudentsScreenState extends State<StudentsScreen> {
     super.dispose();
   }
 
+  /// Builds a Firestore stream for users, optionally filtered by status.
   Stream<QuerySnapshot<Map<String, dynamic>>> _query() {
     Query<Map<String, dynamic>> q = FirebaseFirestore.instance.collection('users');
-
     if (_statusFilter == 'active') {
       q = q.where('status', isEqualTo: 'active');
     } else if (_statusFilter == 'disabled') {
       q = q.where('status', isEqualTo: 'disabled');
     }
-
-    // No orderBy here → avoids composite index requirement
     return q.snapshots();
   }
 
+  /// Page layout: search/filter header and the live list below.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -43,7 +42,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
       ),
       body: Column(
         children: [
-          // Search + Filter row
+          /// Search box + status dropdown
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Row(
@@ -85,6 +84,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
             ),
           ),
 
+          /// Live list of users with client-side search/sort and status control
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: _query(),
@@ -107,7 +107,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
 
                 final docs = snap.data?.docs ?? [];
 
-                // Client-side search
+                /// Apply simple text filter and sort by email.
                 final q = _searchCtrl.text.trim().toLowerCase();
                 final filtered = (q.isEmpty)
                     ? docs.toList()
@@ -118,7 +118,6 @@ class _StudentsScreenState extends State<StudentsScreen> {
                   return email.contains(q) || name.contains(q);
                 }).toList();
 
-                // Client-side sort by email
                 filtered.sort((a, b) {
                   final ea = (a.data()['email'] ?? '').toString().toLowerCase();
                   final eb = (b.data()['email'] ?? '').toString().toLowerCase();
@@ -129,6 +128,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
                   return const Center(child: Text('No students found'));
                 }
 
+                /// Render each student with name/email, status pill, and toggle.
                 return ListView.separated(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                   itemCount: filtered.length,
@@ -161,7 +161,6 @@ class _StudentsScreenState extends State<StudentsScreen> {
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            // Status pill
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                               decoration: BoxDecoration(
@@ -184,7 +183,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
                             Switch(
                               value: isEnabled,
                               onChanged: isAdmin
-                                  ? null // don't disable the admin account here
+                                  ? null
                                   : (val) => _toggleStatus(context, d.reference, email, val),
                             ),
                           ],
@@ -202,6 +201,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
     );
   }
 
+  /// Updates a user's status with a confirmation step when disabling.
   Future<void> _toggleStatus(
       BuildContext context,
       DocumentReference ref,
@@ -235,6 +235,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
     }
   }
 
+  /// Shows a quick info sheet for the selected student.
   void _showStudentSheet(BuildContext context, String name, String email, String status) {
     final theme = Theme.of(context);
     final safe = (status.isNotEmpty) ? status : 'active';

@@ -1,4 +1,3 @@
-// lib/features/profile_screen.dart
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -12,6 +11,7 @@ import 'contact_us_screen.dart';
 import 'package:campus_navigation/services/theme_setup.dart';
 import 'package:campus_navigation/services/messaging_service.dart';
 
+/// Profile page showing account info, preferences, stats, and app settings.
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -39,6 +39,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.dispose();
   }
 
+  /// Live-sync user preferences from Firestore into local switches.
   void _listenToPrefs() {
     final uid = user?.uid;
     if (uid == null) return;
@@ -48,11 +49,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final data = snap.data() ?? {};
       setState(() {
         _stepFreeRoutes = (data['stepFreeRoutes'] == true);
-        _notifications = (data['notificationsEnabled'] != false); // default true
+        _notifications = (data['notificationsEnabled'] != false);
       });
     });
   }
 
+  /// Convenience write for a single preference key.
   Future<void> _savePref(String key, dynamic value) async {
     final uid = user?.uid;
     if (uid == null) return;
@@ -62,6 +64,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  /// Toggle push notifications and persist preference.
   Future<void> _toggleNotifications(bool enabled) async {
     setState(() => _notifications = enabled);
     await _savePref('notificationsEnabled', enabled);
@@ -72,6 +75,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  /// Sign out and return to the login screen.
   Future<void> _logout() async {
     await FirebaseAuth.instance.signOut();
     if (!mounted) return;
@@ -81,6 +85,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  /// Builds the profile UI: header, stats, preferences, settings, logout.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -126,7 +131,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          // Header
+          // Profile header
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -144,7 +149,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Text(email, style: theme.textTheme.bodySmall),
           const Divider(height: 32),
 
-          // Stats
+          // Live stats (trips, distance)
           StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
             stream: statsStream,
             builder: (context, snap) {
@@ -180,6 +185,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 24),
           const Text('Preferences', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
 
+          // Preference toggles
           SwitchListTile(
             title: const Text('Step-Free Routes', style: TextStyle(fontWeight: FontWeight.w500)),
             value: _stepFreeRoutes,
@@ -214,6 +220,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const Text('App Settings', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           const SizedBox(height: 12),
 
+          // Navigation to saved routes/help/contact
           _SettingsTile(
             title: 'Saved Routes',
             icon: Icons.star,
@@ -232,7 +239,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           const SizedBox(height: 12),
 
-          // NEW: dedicated Contact Us screen
           _SettingsTile(
             title: 'Contact Us',
             icon: Icons.support_agent,
@@ -242,6 +248,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
 
           const SizedBox(height: 32),
+          // Logout action
           Center(
             child: TextButton.icon(
               onPressed: _logout,
@@ -257,6 +264,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _capitalize(String s) => (s.isEmpty) ? s : s[0].toUpperCase() + s.substring(1);
 }
 
+/// Small stat badge used in the profile header section.
 class _StatPill extends StatelessWidget {
   final IconData icon;
   final String value;
@@ -282,6 +290,7 @@ class _StatPill extends StatelessWidget {
   }
 }
 
+/// Single-line settings row with icon and chevron.
 class _SettingsTile extends StatelessWidget {
   final String title;
   final IconData icon;

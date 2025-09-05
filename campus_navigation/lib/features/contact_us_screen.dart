@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+/// Simple contact directory screen linking to email, phone, web, and address.
 class ContactUsScreen extends StatelessWidget {
   const ContactUsScreen({super.key});
 
+  /// Tries to open the given URI in an external application.
   Future<void> _open(Uri uri) async {
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-      // You could show a snackbar here if desired
+      // no-op if launch fails
     }
   }
 
+  /// Builds the page scaffold with a list of contact options.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -18,6 +21,7 @@ class ContactUsScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // Contact methods as tappable cards
           Card(
             child: ListTile(
               leading: Icon(Icons.email, color: theme.colorScheme.primary),
@@ -45,6 +49,7 @@ class ContactUsScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
+          // Static address (info only)
           Card(
             child: ListTile(
               leading: Icon(Icons.location_on, color: theme.colorScheme.primary),

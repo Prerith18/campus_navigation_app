@@ -1,13 +1,14 @@
-// lib/features/admin_home_screen.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'map_screen.dart';
 import 'admin_notifications_screen.dart';
 
+/// Admin dashboard entry screen: quick nav, manage grid, live stats, and logout.
 class AdminHomeScreen extends StatelessWidget {
   const AdminHomeScreen({super.key});
 
+  /// Signs the current user out and returns to the login screen.
   Future<void> _logout(BuildContext context) async {
     await FirebaseAuth.instance.signOut();
     if (context.mounted) {
@@ -15,6 +16,7 @@ class AdminHomeScreen extends StatelessWidget {
     }
   }
 
+  /// Opens the map after refreshing the ID token and determining admin access.
   Future<void> _openMap(BuildContext context) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -38,6 +40,7 @@ class AdminHomeScreen extends StatelessWidget {
     }
   }
 
+  /// Builds the admin dashboard layout and content.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -82,42 +85,42 @@ class AdminHomeScreen extends StatelessWidget {
                   ?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
           GridView.count(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisCount: 2,
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            childAspectRatio: 1,
-            children: [
-              _FeatureCard(
-                icon: Icons.calendar_view_month,
-                title: 'Timetables',
-                description: 'Create, edit, and publish timetable bundles.',
-                onTap: () => Navigator.pushNamed(context, '/admin/timetables'),
-              ),
-              _FeatureCard(
-                icon: Icons.badge,
-                title: 'Students',
-                description: 'Manage student accounts and access.',
-                onTap: () => Navigator.pushNamed(context, '/admin/students'),
-              ),
-              _FeatureCard(
-                icon: Icons.map,
-                title: 'Map',
-                description: 'Campus map (view only).',
-                onTap: () => _openMap(context),
-              ),
-              _FeatureCard(
-                icon: Icons.notifications,
-                title: 'Notifications',
-                description: 'Send announcements to students.',
-                onTap: () {
-                   Navigator.push(context,
-                     MaterialPageRoute(builder: (_) => const AdminNotificationsScreen()),
-                   );
-                },
-              ),
-            ]
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: 2,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 1,
+              children: [
+                _FeatureCard(
+                  icon: Icons.calendar_view_month,
+                  title: 'Timetables',
+                  description: 'Create, edit, and publish timetable bundles.',
+                  onTap: () => Navigator.pushNamed(context, '/admin/timetables'),
+                ),
+                _FeatureCard(
+                  icon: Icons.badge,
+                  title: 'Students',
+                  description: 'Manage student accounts and access.',
+                  onTap: () => Navigator.pushNamed(context, '/admin/students'),
+                ),
+                _FeatureCard(
+                  icon: Icons.map,
+                  title: 'Map',
+                  description: 'Campus map (view only).',
+                  onTap: () => _openMap(context),
+                ),
+                _FeatureCard(
+                  icon: Icons.notifications,
+                  title: 'Notifications',
+                  description: 'Send announcements to students.',
+                  onTap: () {
+                    Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => const AdminNotificationsScreen()),
+                    );
+                  },
+                ),
+              ]
           ),
 
           const SizedBox(height: 32),
@@ -164,6 +167,7 @@ class AdminHomeScreen extends StatelessWidget {
   }
 }
 
+/// Compact circular icon + label used for the quick navigation row.
 class _NavPill extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -197,6 +201,7 @@ class _NavPill extends StatelessWidget {
   }
 }
 
+/// Card used in the "Manage" grid to launch a specific admin feature.
 class _FeatureCard extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -255,6 +260,7 @@ class _FeatureCard extends StatelessWidget {
   }
 }
 
+/// Live Firestore-backed count tile with an action, used in "Status Overview".
 class _StatTile extends StatelessWidget {
   final String label;
   final IconData icon;

@@ -1,11 +1,11 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 
+/// Ensure this device can receive push alerts: request permission (where needed)
+/// and subscribe once to the global "allUsers" topic.
 class PushService {
   static Future<void> ensureSubscribedToAllUsersTopic() async {
-    // iOS: request permission (no-op on Android 13+; it shows its own prompt)
+    // Request notification permission on platforms that need it, then subscribe.
     await FirebaseMessaging.instance.requestPermission();
-
-    // Subscribe once; it's idempotent
     await FirebaseMessaging.instance.subscribeToTopic('allUsers');
   }
 }

@@ -1,4 +1,4 @@
-// lib/models/timetable_bundle.dart
+// Lightweight model for a timetable bundle (what gets published for students).
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class TimetableBundle {
@@ -22,6 +22,7 @@ class TimetableBundle {
     this.notes,
   });
 
+  // Create a bundle instance from a Firestore map + document id.
   factory TimetableBundle.fromMap(String id, Map<String, dynamic> m) {
     return TimetableBundle(
       id: id,
@@ -35,6 +36,7 @@ class TimetableBundle {
     );
   }
 
+  // Convert this bundle to a Firestore-friendly map.
   Map<String, dynamic> toMap() => {
     'name': name,
     'published': published,
@@ -45,6 +47,7 @@ class TimetableBundle {
     if (notes != null && notes!.trim().isNotEmpty) 'notes': notes,
   };
 
+  // Return a copy with selective overrides (updates updatedAt automatically).
   TimetableBundle copyWith({
     String? name,
     bool? published,

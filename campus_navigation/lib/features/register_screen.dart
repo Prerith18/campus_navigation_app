@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'main_screen.dart';
 
+/// Student registration screen that creates an account and a lightweight profile.
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
 
@@ -11,6 +12,7 @@ class RegisterScreen extends StatefulWidget {
   State<RegisterScreen> createState() => _RegisterScreenState();
 }
 
+/// Holds form controllers, simple UI state, and the registration flow.
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
@@ -21,6 +23,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
 
+  /// Dispose controllers to avoid memory leaks.
   @override
   void dispose() {
     _emailController.dispose();
@@ -29,6 +32,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
+  /// Derives a friendly display name from the university email.
   String _deriveNameFromEmail(String email) {
     final local = email.split('@').first;
     if (local.isEmpty) return 'Student';
@@ -36,6 +40,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return parts.map((p) => p.isEmpty ? '' : p[0].toUpperCase() + (p.length > 1 ? p.substring(1) : '')).join(' ').trim();
   }
 
+  /// Validates input, creates the Firebase Auth user, writes a profile, then navigates in.
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -53,13 +58,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final email = _emailController.text.trim();
       final password = _passwordController.text.trim();
 
-      // 1) Create Firebase Auth user (this auto-signs the user in)
       final cred = await FirebaseAuth.instance
           .createUserWithEmailAndPassword(email: email, password: password);
 
       final user = cred.user;
 
-      // 2) Try to create Firestore profile (don’t block navigation)
       if (user != null) {
         final uid = user.uid;
         final name = _deriveNameFromEmail(email);
@@ -76,7 +79,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
           }, SetOptions(merge: true))
               .timeout(const Duration(seconds: 5));
         } catch (e) {
-          // Log and continue – don’t trap the user here
           debugPrint('⚠️ Firestore profile write failed: $e');
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -91,7 +93,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
         const SnackBar(content: Text("Account created!")),
       );
 
-      // 3) Navigate to the app whether or not Firestore write succeeded
       if (mounted && user != null) {
         Navigator.pushReplacement(
           context,
@@ -122,6 +123,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  /// Builds the registration form UI with email/password fields and actions.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -144,7 +146,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   Text('Create Account', style: GoogleFonts.poppins(fontSize: 28, fontWeight: FontWeight.w600)),
                   const SizedBox(height: 24),
 
-                  // Email
+                  // Email field
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
@@ -166,7 +168,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   const SizedBox(height: 16),
 
-                  // Password
+                  // Password field
                   TextFormField(
                     controller: _passwordController,
                     obscureText: _obscurePassword,
@@ -194,7 +196,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   const SizedBox(height: 16),
 
-                  // Confirm Password
+                  // Confirm password field
                   TextFormField(
                     controller: _confirmPasswordController,
                     obscureText: _obscureConfirmPassword,
@@ -222,7 +224,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   const SizedBox(height: 24),
 
-                  // Button / loader
+                  // Submit button or progress hint
                   _isLoading
                       ? Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -247,6 +249,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   const SizedBox(height: 12),
 
+                  // Link to login
                   TextButton(
                     onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
                     child: Text("Already have an account? Login", style: GoogleFonts.poppins(color: cs.primary)),

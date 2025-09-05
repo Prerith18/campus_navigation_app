@@ -1,4 +1,3 @@
-// lib/features/saved_routes_screen.dart
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -14,17 +13,20 @@ class SavedRoutesScreen extends StatefulWidget {
 }
 
 class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
+  /// We support up to three quick-access favourites.
   static const _maxSlots = 3;
 
-  // Reuse your existing Maps key; consider moving to a config file.
+  /// Google Places API key used for search & details.
   static const String _apiKey = "AIzaSyAsHYoxe5t5A8Zm8tPogYOfWFjAtyDionw";
 
+  /// Per-user Firestore subcollection that stores saved route slots.
   final String uid = FirebaseAuth.instance.currentUser!.uid;
   late final CollectionReference<Map<String, dynamic>> _col =
   FirebaseFirestore.instance.collection('users').doc(uid).collection('savedRoutes');
 
   @override
   Widget build(BuildContext context) {
+    /// Live view of saved slots ordered by their index.
     return Scaffold(
       appBar: AppBar(title: const Text('Saved Routes')),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -33,7 +35,7 @@ class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
           final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs =
               snap.data?.docs ?? <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
-          // Find the doc for each slot index without returning null from a mapper.
+          /// Helper to fetch the document that belongs to a given slot index.
           QueryDocumentSnapshot<Map<String, dynamic>>? _docForIndex(int i) {
             for (final d in docs) {
               final data = d.data();
@@ -43,12 +45,14 @@ class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
             return null;
           }
 
+          /// Build a fixed-length list of 3 slots, each with its matched doc (or null).
           final List<QueryDocumentSnapshot<Map<String, dynamic>>?> slots =
           List<QueryDocumentSnapshot<Map<String, dynamic>>?>.generate(
             _maxSlots,
                 (i) => _docForIndex(i),
           );
 
+          /// Render one editable card per slot with label, picker, and actions.
           return ListView.separated(
             padding: const EdgeInsets.all(16),
             itemBuilder: (_, i) {
@@ -65,6 +69,7 @@ class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      /// Slot title and editable label field.
                       Text('Slot ${i + 1}',
                           style: const TextStyle(
                               fontWeight: FontWeight.bold, fontSize: 16)),
@@ -76,6 +81,8 @@ class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
                         ),
                       ),
                       const SizedBox(height: 8),
+
+                      /// Shows the chosen place and opens the picker.
                       Row(
                         children: [
                           Expanded(
@@ -94,11 +101,12 @@ class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
                         ],
                       ),
                       const SizedBox(height: 8),
+
+                      /// Save or remove the current slot configuration.
                       Row(
                         children: [
                           OutlinedButton(
                             onPressed: () async {
-                              // Save/Update
                               final id = doc?.id ?? (i + 1).toString();
                               await _col.doc(id).set({
                                 'label': label.text.trim().isEmpty
@@ -140,6 +148,7 @@ class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
     );
   }
 
+  /// Opens the place picker sheet and writes the chosen result into this slot.
   Future<void> _pickPlace(int slot, String currentLabel) async {
     await showModalBottomSheet(
       context: context,
@@ -162,6 +171,7 @@ class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
 }
 
 class _PlacePickerSheet extends StatefulWidget {
+  /// Returns the selected place name and exact coordinates.
   final void Function(String name, double lat, double lng) onChosen;
   const _PlacePickerSheet({required this.onChosen});
 
@@ -170,11 +180,14 @@ class _PlacePickerSheet extends StatefulWidget {
 }
 
 class _PlacePickerSheetState extends State<_PlacePickerSheet> {
+  /// Query text and suggestion list for autocomplete results.
   final _c = TextEditingController();
   List<Map<String, dynamic>> _suggestions = [];
 
+  /// Use the same API key as the parent screen.
   static const _apiKey = _SavedRoutesScreenState._apiKey;
 
+  /// Calls Places Autocomplete, biased around campus, and updates the list.
   Future<void> _getSuggestions(String input) async {
     if (input.isEmpty) {
       setState(() => _suggestions = []);
@@ -208,6 +221,7 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
     }
   }
 
+  /// Fetches Place Details to get precise lat/lng, then returns it upstream.
   Future<void> _choose(String placeId, String name) async {
     final url =
         "https://maps.googleapis.com/maps/api/place/details/json"
@@ -231,6 +245,7 @@ class _PlacePickerSheetState extends State<_PlacePickerSheet> {
 
   @override
   Widget build(BuildContext context) {
+    /// Search field with live suggestions; tap a row to choose the place.
     return Padding(
       padding: EdgeInsets.only(
         left: 16,

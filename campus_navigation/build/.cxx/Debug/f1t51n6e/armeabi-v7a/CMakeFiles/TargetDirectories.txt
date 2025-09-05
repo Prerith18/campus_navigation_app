@@ -1,0 +1,2 @@
+C:/dissertation/campus_navigation/build/.cxx/Debug/f1t51n6e/armeabi-v7a/CMakeFiles/edit_cache.dir
+C:/dissertation/campus_navigation/build/.cxx/Debug/f1t51n6e/armeabi-v7a/CMakeFiles/rebuild_cache.dir

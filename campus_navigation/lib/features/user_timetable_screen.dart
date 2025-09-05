@@ -7,6 +7,7 @@ import 'package:campus_navigation/models/timetable_bundle.dart';
 import 'package:campus_navigation/models/timetable_session.dart';
 import 'package:campus_navigation/features/map_screen.dart';
 
+/// Screen that shows the currently published timetable and its sessions.
 class TimetableScreen extends StatelessWidget {
   const TimetableScreen({super.key});
 
@@ -14,8 +15,10 @@ class TimetableScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final repo = TimetableRepository.instance;
 
+    // Basic shell with an app bar and a body that streams data.
     return Scaffold(
       appBar: AppBar(title: const Text('Timetable')),
+      // Listen to the published bundle; if none, tell the user.
       body: StreamBuilder<TimetableBundle?>(
         stream: repo.streamPublishedBundle(),
         builder: (context, bundleSnap) {
@@ -29,6 +32,7 @@ class TimetableScreen extends StatelessWidget {
             );
           }
 
+          // Once a bundle is available, stream its sessions.
           return StreamBuilder<List<TimetableSession>>(
             stream: repo.streamSessions(bundle.id),
             builder: (context, sessSnap) {
@@ -40,7 +44,10 @@ class TimetableScreen extends StatelessWidget {
                 return const Center(child: Text('No sessions in this timetable.'));
               }
 
+              // Date formatting for each session row.
               final df = DateFormat('EEE, d MMM yyyy • HH:mm');
+
+              // Render the list of sessions with a quick action to navigate.
               return ListView.separated(
                 itemCount: sessions.length,
                 separatorBuilder: (_, __) => const Divider(height: 1),
@@ -56,6 +63,7 @@ class TimetableScreen extends StatelessWidget {
                           '${s.locationName}${s.room != null ? ' • ${s.room}' : ''}',
                     ),
                     isThreeLine: true,
+                    // Opens the map focused on the session location.
                     trailing: FilledButton(
                       onPressed: () {
                         Navigator.push(
@@ -65,7 +73,6 @@ class TimetableScreen extends StatelessWidget {
                               searchQuery: s.locationName,
                               searchLat: s.lat,
                               searchLng: s.lng,
-                              // isAdmin stays default (false)
                             ),
                           ),
                         );

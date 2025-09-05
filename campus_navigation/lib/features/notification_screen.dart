@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+/// Lists per-user notifications with unread badges and bulk "mark all" action.
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
 
@@ -12,6 +13,7 @@ class NotificationsScreen extends StatefulWidget {
 class _NotificationsScreenState extends State<NotificationsScreen> {
   bool _markingAll = false;
 
+  /// Marks all unread notification docs for the user as read in a single batch.
   Future<void> _markAllAsRead(String uid) async {
     if (_markingAll) return;
     setState(() => _markingAll = true);
@@ -49,6 +51,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
+  /// Builds the notifications list; shows a bulk action when there are unread.
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -173,20 +176,19 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 trailing:
                 read ? null : const Icon(Icons.fiber_new, color: Colors.red),
                 onTap: () async {
-                  // mark as read
+                  // Mark this notification as read and handle any deep link.
                   await d.reference.set({
                     'read': true,
                     'readAt': FieldValue.serverTimestamp(),
                   }, SetOptions(merge: true));
 
-                  // Optional deep link
                   final link = data['deeplink'] as String?;
                   if (link != null && link.isNotEmpty) {
                     _openDeepLink(context, link);
                   }
                 },
                 onLongPress: () async {
-                  // Optional: delete a single item (per-user)
+                  // Allow the user to remove the item from their own list.
                   final ok = await showDialog<bool>(
                     context: context,
                     builder: (_) => AlertDialog(
@@ -218,6 +220,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
+  /// Formats a "time ago" label with a simple fallback date.
   String _formatWhen(DateTime dt) {
     final now = DateTime.now();
     final diff = now.difference(dt);
@@ -227,7 +230,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     return '${dt.day}/${dt.month}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
   }
 
-  // Adjust this to your navigation. Example: app://map?lat=..&lng=..&q=Name
+  /// Basic deep-link handler (e.g., app://map?lat=..&lng=..&q=Name).
   void _openDeepLink(BuildContext context, String link) {
     final uri = Uri.tryParse(link);
     if (uri == null) return;
@@ -236,11 +239,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       final q = uri.queryParameters['q'] ?? 'Selected location';
       final lat = double.tryParse(uri.queryParameters['lat'] ?? '');
       final lng = double.tryParse(uri.queryParameters['lng'] ?? '');
-      // For now just pop back to Home; your HomeScreen can react if you wire a global handler.
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Navigate to: $q')),
       );
-      // TODO: invoke your navigation to MapScreen with (q, lat, lng)
+      // Integrate with your navigation to MapScreen if desired.
     }
   }
 }

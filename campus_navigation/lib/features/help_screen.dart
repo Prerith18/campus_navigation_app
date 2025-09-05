@@ -1,10 +1,11 @@
-// lib/features/help_screen.dart
 import 'package:flutter/material.dart';
 import 'contact_us_screen.dart';
 
+/// Help/FAQ screen with quick usage steps and a shortcut to contact support.
 class HelpScreen extends StatelessWidget {
   const HelpScreen({super.key});
 
+  /// Builds the help page: a list of concise "how to" steps and a Contact Us button.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -57,12 +58,14 @@ class HelpScreen extends StatelessWidget {
   }
 }
 
+/// Small reusable card that shows a single help step with icon, title, and body.
 class _StepTile extends StatelessWidget {
   final String title;
   final String body;
   final IconData icon;
   const _StepTile({required this.title, required this.body, required this.icon});
 
+  /// Renders a single help step row.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);

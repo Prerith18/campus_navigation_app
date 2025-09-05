@@ -1,5 +1,6 @@
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+/// Simple POI model used by the map/carousel with Firestore (de)serialization.
 class CampusPoi {
   final String id;
   final String name;
@@ -7,7 +8,6 @@ class CampusPoi {
   final double lng;
   final String imageUrl;
 
-  // optional UI fields
   final String? address;
   final String? phone;
   final String? website;
@@ -35,8 +35,10 @@ class CampusPoi {
     this.category,
   });
 
+  /// Convenience pair for Google Maps widgets.
   LatLng get latLng => LatLng(lat, lng);
 
+  /// Serialize to a Firestore-friendly map.
   Map<String, dynamic> toMap() => {
     'name': name,
     'lat': lat,
@@ -53,6 +55,7 @@ class CampusPoi {
     'category': category,
   };
 
+  /// Rehydrate a POI from a Firestore document.
   factory CampusPoi.fromMap(String id, Map<String, dynamic> m) => CampusPoi(
     id: id,
     name: (m['name'] ?? '') as String,

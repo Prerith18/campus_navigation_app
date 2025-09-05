@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+/// Screen to compose and publish admin notifications, with a feed of recent sends.
 class AdminNotificationsScreen extends StatefulWidget {
   const AdminNotificationsScreen({super.key});
 
@@ -9,6 +10,7 @@ class AdminNotificationsScreen extends StatefulWidget {
   State<AdminNotificationsScreen> createState() => _AdminNotificationsScreenState();
 }
 
+/// Holds form controllers, handles publish flow, and streams recent publishes.
 class _AdminNotificationsScreenState extends State<AdminNotificationsScreen> {
   final _title = TextEditingController();
   final _body = TextEditingController();
@@ -21,6 +23,7 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen> {
   CollectionReference<Map<String, dynamic>> get _col =>
       FirebaseFirestore.instance.collection('admin_notifications');
 
+  /// Dispose text controllers to prevent memory leaks.
   @override
   void dispose() {
     _title.dispose();
@@ -30,6 +33,7 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen> {
     super.dispose();
   }
 
+  /// Validate form, write a notification document, and show user feedback.
   Future<void> _publish() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     FocusScope.of(context).unfocus();
@@ -65,6 +69,7 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen> {
     }
   }
 
+  /// Build the form UI and a live list of recent publishes.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -164,7 +169,6 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen> {
                           style: theme.textTheme.bodySmall,
                         ),
                         onLongPress: () async {
-                          // optional: long-press to delete an admin publish document
                           final ok = await showDialog<bool>(
                             context: context,
                             builder: (_) => AlertDialog(
@@ -196,6 +200,7 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen> {
   }
 }
 
+/// Format a DateTime as dd/MM HH:mm for compact list display.
 String _fmtShortTime(DateTime dt) {
   final h = dt.hour.toString().padLeft(2, '0');
   final m = dt.minute.toString().padLeft(2, '0');

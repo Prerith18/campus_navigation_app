@@ -1,4 +1,3 @@
-// lib/features/login_screen.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -8,12 +7,13 @@ import 'package:campus_navigation/services/push_service.dart';
 import 'admin_home_screen.dart';
 import 'main_screen.dart';
 
-/// 🔐 Hardcoded admin credentials (quick start only)
+/// Demo admin credentials for quick start.
 const _adminEmail = 'admin@le.ac.uk';
 const _adminPassword = 'Admin@123';
 
 enum LoginMode { student, admin }
 
+/// Login screen with student/admin modes and Firebase authentication.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -37,6 +37,7 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  /// Handles sign-in for admin or student and routes accordingly.
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -47,14 +48,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       if (_mode == LoginMode.admin) {
-        // === ADMIN: do a REAL Firebase sign-in ===
         try {
           final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
             email: _adminEmail,
             password: _adminPassword,
           );
 
-          // (Optional) ensure admin has a profile doc
           final uid = cred.user?.uid;
           if (uid != null) {
             final users = FirebaseFirestore.instance.collection('users');
@@ -79,7 +78,6 @@ class _LoginScreenState extends State<LoginScreen> {
             MaterialPageRoute(builder: (_) => const AdminHomeScreen()),
           );
         } on FirebaseAuthException {
-          // fall back to friendly message
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Admin sign-in failed. Check email/password in Firebase Auth.')),
@@ -89,7 +87,6 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      // ===== STUDENT: Firebase Auth sign-in =====
       final cred = await FirebaseAuth.instance
           .signInWithEmailAndPassword(email: email, password: password);
 
@@ -103,13 +100,11 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      // After sign-in, enforce account status via Firestore
       final uid = user.uid;
       final users = FirebaseFirestore.instance.collection('users');
       final doc = await users.doc(uid).get();
 
       if (!doc.exists) {
-        // Lazy profile create (covers old accounts)
         await users.doc(uid).set({
           'email': user.email ?? email,
           'name': (user.email ?? email).split('@').first.replaceAll(RegExp(r'[._]'), ' '),
@@ -127,7 +122,7 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             );
           }
-          return; // block navigation
+          return;
         }
       }
 
@@ -172,6 +167,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  /// Sends a password reset email for student accounts.
   Future<void> _resetPassword() async {
     if (_mode == LoginMode.admin) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -202,6 +198,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  /// Builds the login form, mode switch, and actions.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -370,12 +367,14 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
+/// Two-option pill switch for Student/Admin selection.
 class _ModePillSwitch extends StatelessWidget {
   final LoginMode mode;
   final ValueChanged<LoginMode> onChanged;
 
   const _ModePillSwitch({required this.mode, required this.onChanged, super.key});
 
+  /// Renders the animated pill and handles taps on each option.
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;

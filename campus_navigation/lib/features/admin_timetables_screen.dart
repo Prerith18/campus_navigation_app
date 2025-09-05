@@ -1,19 +1,15 @@
-// lib/features/admin_timetables_screen.dart
-// Admin: create/rename/delete timetable bundles, add/edit/delete sessions,
-// and publish exactly one bundle at a time.
-
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // Timestamp
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:campus_navigation/models/timetable_bundle.dart';
 import 'package:campus_navigation/models/timetable_session.dart';
 import 'package:campus_navigation/services/timetable_repository.dart';
 
-/// Top-level helper: result from the mini place picker.
+/// Simple DTO for a place selection (name + coordinates).
 class _PlaceChoice {
   final String name;
   final double lat;
@@ -21,6 +17,7 @@ class _PlaceChoice {
   const _PlaceChoice(this.name, this.lat, this.lng);
 }
 
+/// Admin screen to manage timetable bundles/sessions and publish one bundle.
 class AdminTimetablesScreen extends StatefulWidget {
   const AdminTimetablesScreen({super.key});
 
@@ -28,12 +25,14 @@ class AdminTimetablesScreen extends StatefulWidget {
   State<AdminTimetablesScreen> createState() => _AdminTimetablesScreenState();
 }
 
+/// Holds selected bundle and wires up CRUD actions + UI streams.
 class _AdminTimetablesScreenState extends State<AdminTimetablesScreen> {
   String? _selectedBundleId;
 
   // Reuse the same API key you already use in the app
   static const String _gmapsApiKey = "AIzaSyAsHYoxe5t5A8Zm8tPogYOfWFjAtyDionw";
 
+  /// Builds the bundles selector, sessions list, and bottom action bar.
   @override
   Widget build(BuildContext context) {
     final repo = TimetableRepository.instance;
@@ -49,7 +48,7 @@ class _AdminTimetablesScreenState extends State<AdminTimetablesScreen> {
       ),
       body: Column(
         children: [
-          // ----- Bundles row -----
+          // Bundle selector row: create and switch between bundles.
           StreamBuilder<List<TimetableBundle>>(
             stream: repo.streamBundles(),
             builder: (context, snap) {
@@ -76,7 +75,7 @@ class _AdminTimetablesScreenState extends State<AdminTimetablesScreen> {
                 );
               }
 
-              // Ensure a valid selected bundle (avoid setState in build)
+              // Keep a valid current selection without setState loops.
               if (_selectedBundleId == null ||
                   !bundles.any((b) => b.id == _selectedBundleId)) {
                 _selectedBundleId = bundles.first.id;
@@ -116,7 +115,7 @@ class _AdminTimetablesScreenState extends State<AdminTimetablesScreen> {
 
           const Divider(height: 1),
 
-          // ----- Sessions list -----
+          // Sessions list for the selected bundle with edit/delete actions.
           Expanded(
             child: _selectedBundleId == null
                 ? const SizedBox()
@@ -160,7 +159,7 @@ class _AdminTimetablesScreenState extends State<AdminTimetablesScreen> {
         ],
       ),
 
-      // ----- Bundle actions: rename, delete, publish -----
+      // Bundle actions: rename, delete, and publish the selected bundle.
       bottomNavigationBar: _selectedBundleId == null
           ? null
           : SafeArea(
@@ -177,7 +176,7 @@ class _AdminTimetablesScreenState extends State<AdminTimetablesScreen> {
                 orElse: () => bundles.first,
               );
 
-              // Wrap fixes bottom overflow on narrow screens
+              // Responsive row of actions for the current bundle.
               return Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -228,10 +227,12 @@ class _AdminTimetablesScreenState extends State<AdminTimetablesScreen> {
     );
   }
 
+  /// Shortcut to open the editor in "add" mode.
   Future<void> _onAddSession() async {
     await _openSessionEditor();
   }
 
+  /// Bottom sheet editor to add or update a single session.
   Future<void> _openSessionEditor({TimetableSession? existing}) async {
     if (_selectedBundleId == null) return;
 
@@ -251,6 +252,7 @@ class _AdminTimetablesScreenState extends State<AdminTimetablesScreen> {
     DateTime end = (existing?.endTime.toDate().toLocal()) ??
         start.add(const Duration(hours: 1));
 
+    // Date/Time pickers for start and end.
     Future<void> pickStart() async {
       final d = await showDatePicker(
         context: context,
@@ -339,7 +341,7 @@ class _AdminTimetablesScreenState extends State<AdminTimetablesScreen> {
               ),
               const SizedBox(height: 8),
 
-              // Location name with search helper
+              // Location with quick building search helper.
               TextField(
                 controller: locationName,
                 decoration: InputDecoration(
@@ -450,8 +452,7 @@ class _AdminTimetablesScreenState extends State<AdminTimetablesScreen> {
     );
   }
 
-  // ---------- helpers ----------
-
+  /// Prompt for a short text input and return the value.
   Future<String?> _askText(String title, {String initial = ''}) async {
     final c = TextEditingController(text: initial);
     return showDialog<String>(
@@ -471,6 +472,7 @@ class _AdminTimetablesScreenState extends State<AdminTimetablesScreen> {
     );
   }
 
+  /// Confirmation dialog returning true/false.
   Future<bool?> _confirm(String msg) {
     return showDialog<bool>(
       context: context,
@@ -489,16 +491,16 @@ class _AdminTimetablesScreenState extends State<AdminTimetablesScreen> {
     );
   }
 
-  // ---- Place picker (Google Places Text Search) ----
+  /// Mini place picker using Google Places Text Search, biased around campus.
   Future<_PlaceChoice?> _pickPlaceDialog({String initialQuery = ''}) async {
     final queryCtrl = TextEditingController(text: initialQuery);
     List<_PlaceChoice> results = [];
 
+    // Run a text search and capture name/lat/lng from results.
     Future<void> _search() async {
       final q = queryCtrl.text.trim();
       if (q.isEmpty) return;
 
-      // Bias around campus (adjust radius if needed)
       const campusLat = 52.6219;
       const campusLng = -1.1244;
       final uri = Uri.https(

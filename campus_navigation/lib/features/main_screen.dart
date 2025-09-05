@@ -1,9 +1,9 @@
-// lib/main_screen.dart
 import 'package:flutter/material.dart';
 import 'home_screen.dart';
 import 'map_screen.dart';
 import 'profile_screen.dart';
 
+/// Root shell with three tabs (Home, Map, Profile) and shared search handoff.
 class MainScreen extends StatefulWidget {
   final String userEmail;
   const MainScreen({super.key, required this.userEmail});
@@ -12,6 +12,7 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
+/// Holds current tab and cross-tab search state for the Map view.
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
 
@@ -19,10 +20,12 @@ class _MainScreenState extends State<MainScreen> {
   double? _searchLat;
   double? _searchLng;
 
+  /// Switches the selected bottom tab.
   void _onTabTapped(int index) {
     setState(() => _selectedIndex = index);
   }
 
+  /// Receives a search from Home and forwards it to the Map tab.
   void _handleSearch(String query, double? lat, double? lng) {
     setState(() {
       _searchQuery = query;
@@ -32,6 +35,7 @@ class _MainScreenState extends State<MainScreen> {
     });
   }
 
+  /// Builds the tab scaffolding and bottom navigation bar.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -59,7 +63,6 @@ class _MainScreenState extends State<MainScreen> {
           children: screens,
         ),
       ),
-      // Material 3 bottom nav, styled from theme
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: _onTabTapped,

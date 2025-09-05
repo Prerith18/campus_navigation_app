@@ -1,24 +1,23 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // for hiding keyboard
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:campus_navigation/services/weather_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
-
-// 🔽 Firebase for unread count & favourites
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'notification_screen.dart';
 import 'user_timetable_screen.dart';
 
-// 🔽 Timetable imports
 import 'package:intl/intl.dart';
 import 'package:campus_navigation/services/timetable_repository.dart';
 import 'package:campus_navigation/models/timetable_session.dart';
 
+/// Home screen: greeting, building search (text/voice), quick actions,
+/// weather, today's classes, favourites, and a notifications bell.
 class HomeScreen extends StatefulWidget {
   final String userEmail;
   final VoidCallback onNavigateToMap;
@@ -41,12 +40,13 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> _suggestions = [];
 
-  // 🔐 Consider moving this to a secure place / remote config for production
+  // Google Places API key (consider securing for production).
   final String apiKey = "AIzaSyAsHYoxe5t5A8Zm8tPogYOfWFjAtyDionw";
 
   late stt.SpeechToText _speech;
   bool _isListening = false;
 
+  /// Initialize weather load and speech engine.
   @override
   void initState() {
     super.initState();
@@ -54,12 +54,14 @@ class _HomeScreenState extends State<HomeScreen> {
     _speech = stt.SpeechToText();
   }
 
+  /// Dispose controllers to avoid leaks.
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
   }
 
+  /// Fetch current weather (after checking location permission) and update UI.
   Future<void> fetchWeather() async {
     try {
       await _checkLocationPermission();
@@ -78,6 +80,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Request location permission if needed.
   Future<void> _checkLocationPermission() async {
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied ||
@@ -86,6 +89,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Toggle voice input for search; auto-searches on final recognition.
   Future<void> _toggleListening() async {
     if (!_isListening) {
       final available = await _speech.initialize(
@@ -116,19 +120,20 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Stop active voice capture.
   void _stopListening() {
     _speech.stop();
     setState(() => _isListening = false);
   }
 
-  // --- SEARCH CORE ---
+  /// Entry point for the search button.
   Future<void> _onSearchPressed() async {
     await _getSuggestions(_searchController.text);
     await _resolveAndNavigate();
   }
 
+  /// Decide whether to navigate using a resolved place or raw query.
   Future<void> _resolveAndNavigate() async {
-    // Close keyboard & suggestions before navigation
     FocusScope.of(context).unfocus();
     await SystemChannels.textInput.invokeMethod('TextInput.hide');
 
@@ -136,13 +141,13 @@ class _HomeScreenState extends State<HomeScreen> {
       final first = _suggestions.first;
       await _getPlaceDetails(first['place_id'], first['description']);
     } else {
-      // pass raw query to MapScreen (it will try text search)
       widget.onSearch(_searchController.text, null, null);
       setState(() => _suggestions = []);
       widget.onNavigateToMap();
     }
   }
 
+  /// Fetch autocomplete suggestions near campus for the given input.
   Future<void> _getSuggestions(String input) async {
     if (input.isEmpty) {
       setState(() => _suggestions = []);
@@ -178,6 +183,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Resolve a place to lat/lng (when possible) and navigate to the map.
   Future<void> _getPlaceDetails(String placeId, String name) async {
     final url =
         "https://maps.googleapis.com/maps/api/place/details/json"
@@ -198,11 +204,11 @@ class _HomeScreenState extends State<HomeScreen> {
       widget.onSearch(name, null, null);
     }
 
-    // Regardless of success, clear suggestions and navigate to the map
     setState(() => _suggestions = []);
     widget.onNavigateToMap();
   }
 
+  /// Opens the university website externally.
   Future<void> _launchUniversitySite() async {
     const url = 'https://le.ac.uk/';
     final uri = Uri.parse(url);
@@ -211,6 +217,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Builds the home scaffold: header, search, quick actions, weather, schedule, favourites.
   @override
   Widget build(BuildContext context) {
     final emailFirst = widget.userEmail.split('@').first;
@@ -265,7 +272,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 16),
 
-          // ---- Search bar + suggestions ----
+          // Search bar with typeahead suggestions and voice toggle.
           Column(
             children: [
               TextField(
@@ -332,7 +339,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
           const SizedBox(height: 24),
 
-          // ---- Quick nav buttons ----
+          // Quick action buttons: navigate, timetable, buses.
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
@@ -357,7 +364,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
           const SizedBox(height: 24),
 
-          // ---- Weather ----
+          // Weather summary card.
           Text('Weather',
               style: theme.textTheme.titleMedium
                   ?.copyWith(fontWeight: FontWeight.bold)),
@@ -390,7 +397,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
           const SizedBox(height: 24),
 
-          // ---- Today’s schedule from published bundle (live) ----
+          // Live "Today's Schedule" from the published timetable.
           Text("Today's Schedule",
               style: theme.textTheme.titleMedium
                   ?.copyWith(fontWeight: FontWeight.bold)),
@@ -404,7 +411,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
           const SizedBox(height: 24),
 
-          // ---- Favorites from Firestore savedRoutes (up to 3) ----
+          // Favourite places pulled from Firestore (up to three).
           Text('Your Favorite Places',
               style: theme.textTheme.titleMedium
                   ?.copyWith(fontWeight: FontWeight.bold)),
@@ -458,6 +465,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Small circular nav button used in the quick actions row.
   Widget _buildNavButton(
       BuildContext context, IconData icon, String label, VoidCallback onPressed) {
     final theme = Theme.of(context);
@@ -480,6 +488,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+/// Notification bell that shows an unread count badge from Firestore.
 class _NotificationBell extends StatelessWidget {
   final VoidCallback onTap;
   const _NotificationBell({required this.onTap});
@@ -525,7 +534,7 @@ class _NotificationBell extends StatelessWidget {
                     const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                     decoration: BoxDecoration(
                       color: Colors.red,
-                      borderRadius: BorderRadius.circular(10), // pill
+                      borderRadius: BorderRadius.circular(10),
                     ),
                     constraints:
                     const BoxConstraints(minWidth: 16, minHeight: 16),
@@ -544,8 +553,7 @@ class _NotificationBell extends StatelessWidget {
   }
 }
 
-/// Card that streams today's sessions from the published timetable and
-/// renders "Go to class" buttons for each.
+/// Card that streams today’s published sessions and offers "Go to class".
 class _TodayScheduleCard extends StatelessWidget {
   final void Function(TimetableSession session) onGoToClass;
   const _TodayScheduleCard({required this.onGoToClass});
@@ -602,7 +610,7 @@ class _TodayScheduleCard extends StatelessWidget {
   }
 }
 
-/// Small chip used for each favourite.
+/// Rounded favourite shortcut used in the favourites row.
 class _FavChip extends StatelessWidget {
   final String label;
   final VoidCallback onTap;

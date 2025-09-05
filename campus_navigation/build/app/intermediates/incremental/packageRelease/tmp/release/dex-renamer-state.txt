@@ -1,7 +1,0 @@
-#Thu Sep 04 15:47:57 BST 2025
-base.1=C\:\\dissertation\\campus_navigation\\build\\app\\intermediates\\desugar_lib_dex\\release\\l8DexDesugarLibRelease\\classes1000.dex
-path.1=classes1000.dex
-base.0=C\:\\dissertation\\campus_navigation\\build\\app\\intermediates\\dex\\release\\minifyReleaseWithR8\\classes.dex
-renamed.1=classes2.dex
-renamed.0=classes.dex
-path.0=classes.dex

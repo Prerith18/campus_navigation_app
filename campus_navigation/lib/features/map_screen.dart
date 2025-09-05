@@ -1,6 +1,3 @@
-// lib/features/map_screen.dart
-// (unchanged header comments omitted for brevity)
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -12,10 +9,13 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:xml/xml.dart' as xml;
+import 'package:flip_card/flip_card.dart';
 
 import 'package:campus_navigation/models/campus_poi.dart';
 import 'package:campus_navigation/services/campus_poi_repository.dart';
 
+/// Interactive campus map: search, flippable POI carousel, routes, live buses,
+/// and admin editing when enabled.
 class MapScreen extends StatefulWidget {
   final String searchQuery;
   final double? searchLat;
@@ -49,6 +49,7 @@ class _MapScreenState extends State<MapScreen> {
 
   LatLng? _currentLocation;
   LatLng? _selectedLocation;
+  CampusPoi? _selectedPoiForMarker;
   int _currentIndex = 0;
 
   Set<Marker> _markers = {};
@@ -61,7 +62,9 @@ class _MapScreenState extends State<MapScreen> {
   final List<CampusPoi> _pois = [];
   StreamSubscription<List<CampusPoi>>? _poiSub;
 
-  // Live buses
+  final List<GlobalKey<FlipCardState>> _flipCtrls = [];
+
+  // Live buses state
   bool _liveOn = false;
   bool _didAutoFocusBuses = false;
   Timer? _busPollTimer;
@@ -69,10 +72,9 @@ class _MapScreenState extends State<MapScreen> {
   final Map<String, Timer> _busAnimTimers = {};
   BitmapDescriptor? _emojiIcon;
 
-  // ---- Map style (dark mode support)
+  // Map style (dark mode)
   Brightness? _lastBrightness;
 
-  // A compact dark style that keeps labels readable
   static const String _mapStyleDark = '''
 [
   {"elementType":"geometry","stylers":[{"color":"#242f3e"}]},
@@ -96,6 +98,7 @@ class _MapScreenState extends State<MapScreen> {
 ]
 ''';
 
+  /// Kick off location, icons, and POI stream; optionally pre-route to a search.
   @override
   void initState() {
     super.initState();
@@ -128,12 +131,14 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
+  /// Re-apply map style when theme changes.
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     WidgetsBinding.instance.addPostFrameCallback((_) => _applyMapStyleForTheme());
   }
 
+  /// Clean up controllers, streams, and timers.
   @override
   void dispose() {
     _pageCtrl.dispose();
@@ -146,7 +151,7 @@ class _MapScreenState extends State<MapScreen> {
     super.dispose();
   }
 
-  // ---------- Firestore POIs ----------
+  /// Subscribe to Firestore POIs and keep flip controllers in sync.
   void _subscribePois() {
     _poiSub = CampusPoiRepository.instance.streamAllActiveOrdered().listen((list) {
       if (!mounted) return;
@@ -154,11 +159,14 @@ class _MapScreenState extends State<MapScreen> {
         _pois
           ..clear()
           ..addAll(list);
+        _flipCtrls
+          ..clear()
+          ..addAll(List.generate(_pois.length, (_) => GlobalKey<FlipCardState>()));
       });
     }, onError: (e) => debugPrint('POI stream error: $e'));
   }
 
-  // ---------- Location ----------
+  /// Request location permission and mark the current location.
   Future<void> _initLocation() async {
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -198,11 +206,13 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  /// Camera helper to focus a coordinate.
   Future<void> _animateTo(LatLng latLng, {double zoom = 17}) async {
     final c = await _controller.future;
     await c.animateCamera(CameraUpdate.newLatLngZoom(latLng, zoom));
   }
 
+  /// Center the map on the user's latest known location.
   Future<void> _animateToCurrent() async {
     try {
       final last = await Geolocator.getLastKnownPosition();
@@ -233,10 +243,16 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // ---------- Selection / clear ----------
-  Future<void> _setDestination(LatLng coords, {String? title, bool addMarker = false}) async {
+  /// Select a destination, optionally add a marker, and reset any active route.
+  Future<void> _setDestination(
+      LatLng coords, {
+        String? title,
+        bool addMarker = false,
+        CampusPoi? poi,
+      }) async {
     setState(() {
       _selectedLocation = coords;
+      _selectedPoiForMarker = poi;
       _searchedVisible = addMarker;
 
       final next = <Marker>{..._markers}..removeWhere((m) => m.markerId.value == 'searched');
@@ -246,7 +262,7 @@ class _MapScreenState extends State<MapScreen> {
           markerId: const MarkerId('searched'),
           position: coords,
           infoWindow: title == null ? const InfoWindow() : InfoWindow(title: title),
-          onTap: widget.isAdmin ? _openEditorForSearched : null,
+          onTap: widget.isAdmin ? _onMarkerTap : null,
         ));
       }
       _markers = next;
@@ -257,9 +273,11 @@ class _MapScreenState extends State<MapScreen> {
     await _animateTo(coords);
   }
 
+  /// Clear destination, marker, and route state.
   void _clearNavigation() {
     setState(() {
       _selectedLocation = null;
+      _selectedPoiForMarker = null;
       _searchedVisible = false;
       _polylines.clear();
       _routeInfo = null;
@@ -267,16 +285,41 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
+  /// Remove only the red "searched" marker and its route.
   void _clearSearchedMarker() {
     setState(() {
       _searchedVisible = false;
+      _selectedPoiForMarker = null;
       _markers.removeWhere((m) => m.markerId.value == 'searched');
       _polylines.clear();
       _routeInfo = null;
     });
   }
 
-  // ---------- Directions ----------
+  /// Admin-only: tapping the red marker opens an editor (prefilled if near a POI).
+  void _onMarkerTap() {
+    if (!widget.isAdmin || _selectedLocation == null) return;
+    CampusPoi? existing = _selectedPoiForMarker;
+    existing ??= _nearestPoiTo(_selectedLocation!, maxMeters: 30);
+    _openPoiEditor(initialPos: _selectedLocation!, existing: existing);
+  }
+
+  /// Find the nearest known POI to a point within a given radius (meters).
+  CampusPoi? _nearestPoiTo(LatLng p, {double maxMeters = 30}) {
+    double best = double.infinity;
+    CampusPoi? bestPoi;
+    for (final poi in _pois) {
+      final d = _distanceMeters(p, poi.latLng);
+      if (d < best) {
+        best = d;
+        bestPoi = poi;
+      }
+    }
+    if (best <= maxMeters) return bestPoi;
+    return null;
+  }
+
+  /// Request a walking or wheelchair-friendly route and render it.
   Timer? _routeDebounce;
   Future<void> _showRoute({required bool wheelchair}) async {
     if (_selectedLocation == null) {
@@ -294,7 +337,8 @@ class _MapScreenState extends State<MapScreen> {
     _routeDebounce?.cancel();
     _routeDebounce = Timer(const Duration(milliseconds: 200), () async {
       try {
-        final route = await _getRouteWithStats(_currentLocation!, _selectedLocation!, wheelchair: wheelchair);
+        final route =
+        await _getRouteWithStats(_currentLocation!, _selectedLocation!, wheelchair: wheelchair);
         setState(() {
           _isWheelchairRoute = wheelchair;
           _routeInfo = route;
@@ -317,12 +361,15 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
+  /// Snackbar helper.
   void _toast(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  Future<RouteInfo> _getRouteWithStats(LatLng origin, LatLng dest, {required bool wheelchair}) async {
+  /// Call Google Directions API and return decoded polyline + stats.
+  Future<RouteInfo> _getRouteWithStats(LatLng origin, LatLng dest,
+      {required bool wheelchair}) async {
     final params = {
       'origin': '${origin.latitude},${origin.longitude}',
       'destination': '${dest.latitude},${dest.longitude}',
@@ -365,6 +412,7 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  /// Decode an encoded polyline string to a list of LatLng.
   List<LatLng> _decodePolyline(String encoded) {
     final List<LatLng> poly = [];
     int index = 0, lat = 0, lng = 0;
@@ -394,6 +442,7 @@ class _MapScreenState extends State<MapScreen> {
     return poly;
   }
 
+  /// Fit the camera to show an entire polyline with padding.
   Future<void> _fitBoundsToPolyline(List<LatLng> pts) async {
     if (pts.isEmpty) return;
     double minLat = pts.first.latitude, maxLat = pts.first.latitude;
@@ -416,11 +465,12 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  // ---------- Search (Places) ----------
+  /// Text search for places near campus; centers and drops a marker.
   Future<void> _searchPlace(String query) async {
     if (query.trim().isEmpty) return;
     try {
-      final url = Uri.https('maps.googleapis.com', '/maps/api/place/textsearch/json', {
+      final url =
+      Uri.https('maps.googleapis.com', '/maps/api/place/textsearch/json', {
         'query': query,
         'location': '${campusCenter.latitude},${campusCenter.longitude}',
         'radius': '2000',
@@ -433,7 +483,8 @@ class _MapScreenState extends State<MapScreen> {
         final result = (data['results'] as List).first as Map<String, dynamic>;
         final loc = result['geometry']['location'] as Map<String, dynamic>;
         final name = (result['name'] as String?) ?? query;
-        final latLng = LatLng((loc['lat'] as num).toDouble(), (loc['lng'] as num).toDouble());
+        final latLng = LatLng(
+            (loc['lat'] as num).toDouble(), (loc['lng'] as num).toDouble());
         await _setDestination(latLng, title: name, addMarker: true);
       } else {
         _toast('No results for "$query" (${data['status']})');
@@ -443,12 +494,13 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // ---------- Admin editor ----------
+  /// Admin-only: open editor for the current red marker (blank if new).
   void _openEditorForSearched() {
     if (!widget.isAdmin || _selectedLocation == null) return;
     _openPoiEditor(initialPos: _selectedLocation!);
   }
 
+  /// Bottom-sheet editor to create/update/delete a POI.
   Future<void> _openPoiEditor({LatLng? initialPos, CampusPoi? existing}) async {
     final name = TextEditingController(text: existing?.name ?? '');
     final imageUrl = TextEditingController(text: existing?.imageUrl ?? '');
@@ -459,9 +511,11 @@ class _MapScreenState extends State<MapScreen> {
     final order = TextEditingController(text: (existing?.order ?? 0).toString());
     final category = TextEditingController(text: existing?.category ?? '');
     final lat = TextEditingController(
-        text: (existing?.lat ?? initialPos?.latitude ?? campusCenter.latitude).toStringAsFixed(6));
+        text: (existing?.lat ?? initialPos?.latitude ?? campusCenter.latitude)
+            .toStringAsFixed(6));
     final lng = TextEditingController(
-        text: (existing?.lng ?? initialPos?.longitude ?? campusCenter.longitude).toStringAsFixed(6));
+        text: (existing?.lng ?? initialPos?.longitude ?? campusCenter.longitude)
+            .toStringAsFixed(6));
     bool isOpenNow = existing?.isOpenNow ?? true;
     bool active = existing?.active ?? true;
 
@@ -583,6 +637,7 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  /// Admin-only delete confirmation when triggered from a card.
   Future<void> _confirmDeleteFromCard(CampusPoi poi) async {
     if (!widget.isAdmin) return;
     final ok = await showDialog<bool>(
@@ -610,7 +665,7 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // ---------- Live buses ----------
+  /// Start polling and animating live bus markers.
   void _startLiveBuses() {
     if (_liveOn) return;
     _liveOn = true;
@@ -622,6 +677,7 @@ class _MapScreenState extends State<MapScreen> {
     setState(() {});
   }
 
+  /// Stop live bus updates and clear markers.
   void _stopLiveBuses() {
     _busPollTimer?.cancel();
     _busPollTimer = null;
@@ -636,6 +692,7 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
+  /// Fetch SIRI-VM feed and update bus markers with smooth movement.
   Future<void> _fetchAndRenderSiri() async {
     try {
       final resp = await http.get(Uri.parse(bodsSiriUrl));
@@ -708,6 +765,7 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  /// Haversine distance between two coordinates (meters).
   double _distanceMeters(LatLng a, LatLng b) {
     const R = 6371000.0;
     final dLat = (b.latitude - a.latitude) * pi / 180.0;
@@ -721,6 +779,7 @@ class _MapScreenState extends State<MapScreen> {
     return 2 * R * asin(sqrt(h));
   }
 
+  /// Interpolates a bus marker position over time for smooth animation.
   void _smoothMove({
     required String id,
     required String markerId,
@@ -753,6 +812,7 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
+  /// Insert/replace a marker with the given icon at a position.
   void _putEmojiMarker(String markerId, LatLng pos, BitmapDescriptor icon) {
     setState(() {
       _markers.removeWhere((m) => m.markerId.value == markerId);
@@ -767,6 +827,7 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
+  /// Pre-render a 🚌 emoji-based bitmap for bus markers.
   Future<void> _loadEmojiIcon() async {
     try {
       _emojiIcon = await _makeEmojiMarker('🚌', fontSize: 56);
@@ -775,6 +836,7 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  /// Render an emoji to a bitmap descriptor for custom markers.
   Future<BitmapDescriptor> _makeEmojiMarker(String emoji, {double fontSize = 48}) async {
     final tp = TextPainter(
       text: TextSpan(text: emoji, style: TextStyle(fontSize: fontSize)),
@@ -794,6 +856,7 @@ class _MapScreenState extends State<MapScreen> {
     return BitmapDescriptor.fromBytes(bytes);
   }
 
+  /// Safe XML text getter for first matching element.
   String? _textOfFirst(xml.XmlElement parent, String localName) {
     final n = parent.findAllElements(localName, namespace: '*');
     if (n.isEmpty) return null;
@@ -801,7 +864,7 @@ class _MapScreenState extends State<MapScreen> {
     return txt.isEmpty ? null : txt;
   }
 
-  // ---- Map style applier
+  /// Apply dark/light map style based on current theme.
   Future<void> _applyMapStyleForTheme() async {
     if (!_controller.isCompleted) return;
     final brightness = Theme.of(context).brightness;
@@ -811,7 +874,7 @@ class _MapScreenState extends State<MapScreen> {
     _lastBrightness = brightness;
   }
 
-  // ---------- UI ----------
+  /// Build the map, overlays (admin search, route chip), carousel, and actions.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -838,7 +901,7 @@ class _MapScreenState extends State<MapScreen> {
             },
           ),
 
-          // Admin-only search bar
+          // Admin search overlay
           if (widget.isAdmin)
             Positioned(
               left: 16,
@@ -858,7 +921,7 @@ class _MapScreenState extends State<MapScreen> {
                       icon: const Icon(Icons.clear),
                       onPressed: () {
                         _adminSearchCtrl.clear();
-                        _clearNavigation(); // clears marker + route
+                        _clearNavigation();
                       },
                     ),
                     border: OutlineInputBorder(
@@ -874,7 +937,7 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
 
-          // Distance/time chip
+          // Route info chip
           if (_routeInfo != null)
             Positioned(
               right: 16,
@@ -928,7 +991,7 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
 
-          // Carousel (both user & admin)
+          // POI carousel
           if (_pois.isNotEmpty)
             Positioned(
               left: 0,
@@ -943,17 +1006,45 @@ class _MapScreenState extends State<MapScreen> {
                     _currentIndex = i;
                     if (i >= 0 && i < _pois.length) {
                       final b = _pois[i];
-                      _selectedLocation = b.latLng; // for routing
+                      _selectedLocation = b.latLng;
                     }
                   },
                   itemBuilder: (_, i) {
                     final b = _pois[i];
+                    final key = _flipCtrls[i];
+
                     return Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: GestureDetector(
-                        onTap: () => _setDestination(b.latLng, title: b.name, addMarker: true),
-                        onLongPress: widget.isAdmin ? () => _confirmDeleteFromCard(b) : null,
-                        child: _PoiCard(poi: b),
+                      child: FlipCard(
+                        key: key,
+                        speed: 300,
+                        front: _PoiCardFront(
+                          poi: b,
+                          onTap: () async {
+                            await _setDestination(b.latLng,
+                                title: b.name, addMarker: true, poi: b);
+                            key.currentState?.toggleCard();
+                          },
+                          onLongPressDelete: widget.isAdmin
+                              ? () => _confirmDeleteFromCard(b)
+                              : null,
+                        ),
+                        back: _PoiCardBack(
+                          poi: b,
+                          onNavigate: () async {
+                            await _setDestination(
+                                b.latLng, title: b.name, addMarker: true, poi: b);
+                            await _showRoute(wheelchair: false);
+                          },
+                          onEdit: widget.isAdmin
+                              ? () async {
+                            await _setDestination(b.latLng,
+                                title: b.name, addMarker: true, poi: b);
+                            _onMarkerTap();
+                          }
+                              : null,
+                          onFlipBack: () => key.currentState?.toggleCard(),
+                        ),
                       ),
                     );
                   },
@@ -961,7 +1052,7 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
 
-          // Bottom actions (added CLEAR button)
+          // Bottom action row
           Positioned(
             left: 0,
             right: 0,
@@ -984,7 +1075,7 @@ class _MapScreenState extends State<MapScreen> {
                     }
                   },
                 ),
-                _RoundIconButton( // NEW: clears red pin + route
+                _RoundIconButton(
                   icon: Icons.clear,
                   onPressed: _clearNavigation,
                 ),
@@ -997,15 +1088,95 @@ class _MapScreenState extends State<MapScreen> {
   }
 }
 
-// --- Simple card for carousel ---
-class _PoiCard extends StatelessWidget {
+/// Front face of a carousel card showing image + open status.
+class _PoiCardFront extends StatelessWidget {
   final CampusPoi poi;
-  const _PoiCard({required this.poi});
+  final VoidCallback onTap;
+  final VoidCallback? onLongPressDelete;
+
+  const _PoiCardFront({
+    required this.poi,
+    required this.onTap,
+    this.onLongPressDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final statusColor = poi.isOpenNow ? theme.colorScheme.primary : theme.colorScheme.error;
+    final statusColor =
+    poi.isOpenNow ? theme.colorScheme.primary : theme.colorScheme.error;
+
+    return GestureDetector(
+      onTap: onTap,
+      onLongPress: onLongPressDelete,
+      child: Container(
+        width: 280,
+        decoration: BoxDecoration(
+          color: theme.cardColor,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: const [BoxShadow(blurRadius: 10, color: Colors.black26)],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius:
+              const BorderRadius.vertical(top: Radius.circular(18)),
+              child: Image.network(
+                poi.imageUrl,
+                height: 130,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) =>
+                    Container(height: 130, color: Colors.grey.shade300),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(poi.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Text(
+                    poi.isOpenNow
+                        ? "Open · Closes ${poi.closesAt}"
+                        : "Closed · ${poi.closesAt}",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13, color: statusColor),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Back face of a carousel card with details + actions.
+class _PoiCardBack extends StatelessWidget {
+  final CampusPoi poi;
+  final VoidCallback onNavigate;
+  final VoidCallback? onEdit;
+  final VoidCallback onFlipBack;
+
+  const _PoiCardBack({
+    required this.poi,
+    required this.onNavigate,
+    required this.onFlipBack,
+    this.onEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
 
     return Container(
       width: 280,
@@ -1014,38 +1185,73 @@ class _PoiCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         boxShadow: const [BoxShadow(blurRadius: 10, color: Colors.black26)],
       ),
+      padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-            child: Image.network(
-              poi.imageUrl,
-              height: 130,
-              width: double.infinity,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) =>
-                  Container(height: 130, color: Colors.grey.shade300),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(poi.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                Text(
-                  poi.isOpenNow ? "Open · Closes ${poi.closesAt}" : "Closed · ${poi.closesAt}",
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 13, color: statusColor),
+          Text(poi.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          if (poi.address != null) ...[
+            Row(children: [
+              const Icon(Icons.place, size: 16),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(poi.address!,
+                    maxLines: 2, overflow: TextOverflow.ellipsis),
+              ),
+            ]),
+            const SizedBox(height: 4),
+          ],
+          if (poi.phone != null) ...[
+            Row(children: [
+              const Icon(Icons.phone, size: 16),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(poi.phone!, maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+            ]),
+            const SizedBox(height: 4),
+          ],
+          if (poi.website != null) ...[
+            Row(children: [
+              const Icon(Icons.public, size: 16),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(poi.website!,
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+            ]),
+            const SizedBox(height: 8),
+          ],
+          const Spacer(),
+          Row(
+            children: [
+              ElevatedButton.icon(
+                onPressed: onNavigate,
+                icon: const Icon(Icons.navigation),
+                label: const Text('Navigate'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: theme.colorScheme.primary,
+                  foregroundColor: theme.colorScheme.onPrimary,
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 8),
+              if (onEdit != null)
+                OutlinedButton.icon(
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit),
+                  label: const Text('Edit'),
+                ),
+              const Spacer(),
+              IconButton(
+                tooltip: 'Flip back',
+                icon: const Icon(Icons.flip),
+                onPressed: onFlipBack,
+              ),
+            ],
           ),
         ],
       ),
@@ -1053,7 +1259,7 @@ class _PoiCard extends StatelessWidget {
   }
 }
 
-// --- Circular button ---
+/// Round primary icon button used in the bottom actions row.
 class _RoundIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onPressed;
@@ -1076,7 +1282,7 @@ class _RoundIconButton extends StatelessWidget {
   }
 }
 
-// --- Route info model ---
+/// Lightweight route model to render polylines and badges.
 class RouteInfo {
   final List<LatLng> points;
   final String distanceText;
@@ -1092,9 +1298,11 @@ class RouteInfo {
   });
 }
 
-double _deg2rad(double d) => d * pi / 180.0;
+/// Human-friendly distance formatter.
 String _formatDistance(int meters) =>
     meters < 1000 ? '$meters m' : '${(meters / 1000).toStringAsFixed(1)} km';
+
+/// Human-friendly duration formatter.
 String _formatDuration(int seconds) {
   if (seconds <= 0) return '';
   final m = (seconds / 60).round();
